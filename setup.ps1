@@ -5,7 +5,7 @@
     Automated setup script for the Political Spectrum App with progress tracking,
     logging, error handling, and troubleshooting capabilities.
 .VERSION
-    2.8.1 - Fixed input prompts, improved build error display
+    2.9.0 - Auto-update from Git, real-time server monitoring
 .AUTHOR
     Shootre21
 .REPOSITORY
@@ -31,7 +31,7 @@ param(
 # ============================================
 $Config = @{
     AppName = "Political Spectrum App"
-    Version = "2.8.1"
+    Version = "2.9.0"
     NodeMinVersion = "18.0.0"
     BunMinVersion = "1.0.0"
     RequiredPorts = @(3000, 5555)
@@ -1104,6 +1104,176 @@ function Invoke-FinalChecks {
 # ============================================
 $Script:ServerProcess = $null
 $Script:ServerLogPath = ".\server.log"
+$Script:LastCommitHash = $null
+$Script:Restarting = $false
+$Script:UpdateInterval = 10  # Check for updates every 10 seconds
+
+# Git Update Functions
+function Get-GitCurrentBranch {
+    try {
+        $branch = git rev-parse --abbrev-ref HEAD 2>$null
+        return $branch.Trim()
+    } catch {
+        return "master"
+    }
+}
+
+function Get-GitLocalHash {
+    try {
+        $hash = git rev-parse HEAD 2>$null
+        return $hash.Trim()
+    } catch {
+        return $null
+    }
+}
+
+function Get-GitRemoteHash {
+    param([string]$Branch = "master")
+    
+    try {
+        git fetch origin $Branch 2>$null | Out-Null
+        $hash = git rev-parse "origin/$Branch" 2>$null
+        return $hash.Trim()
+    } catch {
+        return $null
+    }
+}
+
+function Test-GitUpdates {
+    $branch = Get-GitCurrentBranch
+    $localHash = Get-GitLocalHash
+    $remoteHash = Get-GitRemoteHash -Branch $branch
+    
+    if ($localHash -and $remoteHash -and $localHash -ne $remoteHash) {
+        return @{
+            HasUpdates = $true
+            LocalHash = $localHash
+            RemoteHash = $remoteHash
+            Branch = $branch
+        }
+    }
+    
+    return @{
+        HasUpdates = $false
+        LocalHash = $localHash
+        RemoteHash = $remoteHash
+        Branch = $branch
+    }
+}
+
+function Invoke-GitPull {
+    param([string]$Branch = "master")
+    
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Magenta
+    Write-Host "  GIT UPDATE DETECTED - Pulling changes..." -ForegroundColor Magenta
+    Write-Host "  ============================================================" -ForegroundColor Magenta
+    Write-Host ""
+    
+    Write-Log "Pulling latest changes from origin/$Branch..." -Level INFO
+    
+    try {
+        # Stash any local changes
+        $stashResult = git stash 2>&1
+        $hasStash = $stashResult -notmatch "No local changes"
+        
+        # Pull changes
+        $pullResult = git pull origin $Branch 2>&1
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  [OK] Successfully pulled updates!" -ForegroundColor Green
+            
+            if ($hasStash) {
+                git stash pop 2>&1 | Out-Null
+            }
+            
+            return $true
+        } else {
+            Write-Host "  [ERROR] Pull failed: $pullResult" -ForegroundColor Red
+            
+            if ($hasStash) {
+                git stash pop 2>&1 | Out-Null
+            }
+            
+            return $false
+        }
+    } catch {
+        Write-Host "  [ERROR] Git pull error: $_" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Invoke-AutoUpdate {
+    param(
+        [bool]$RestartServer = $true,
+        [ref]$RequestCount,
+        [ref]$ErrorCount
+    )
+    
+    $branch = Get-GitCurrentBranch
+    $updateInfo = Test-GitUpdates
+    
+    if ($updateInfo.HasUpdates) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Magenta
+        Write-Host "  [UPDATE] New version detected on GitHub!" -ForegroundColor Magenta
+        Write-Host "  ============================================================" -ForegroundColor Magenta
+        Write-Host ""
+        Write-Host "  Local:  $($updateInfo.LocalHash.Substring(0,7))" -ForegroundColor Gray
+        Write-Host "  Remote: $($updateInfo.RemoteHash.Substring(0,7))" -ForegroundColor Magenta
+        Write-Host ""
+        
+        # Stop server
+        if ($RestartServer -and $Script:ServerProcess -and -not $Script:ServerProcess.HasExited) {
+            Write-Host "  Stopping server for update..." -ForegroundColor Yellow
+            Stop-DevServer
+        }
+        
+        # Pull changes
+        $success = Invoke-GitPull -Branch $branch
+        
+        if ($success) {
+            # Check if dependencies need update
+            if (Test-Path "package.json") {
+                Write-Host "  Checking for dependency updates..." -ForegroundColor Cyan
+                
+                $pkgMgr = if ($Script:PackageManager -eq "bun") { "bun" } else { "npm" }
+                & $pkgMgr install 2>&1 | Out-Null
+                
+                Write-Host "  [OK] Dependencies updated" -ForegroundColor Green
+            }
+            
+            # Regenerate Prisma client if schema changed
+            if (Test-Path "prisma\schema.prisma") {
+                Write-Host "  Checking Prisma schema..." -ForegroundColor Cyan
+                npx prisma generate 2>&1 | Out-Null
+            }
+            
+            if ($RestartServer) {
+                Write-Host ""
+                Write-Host "  Restarting server..." -ForegroundColor Yellow
+                $Script:Restarting = $true
+                
+                Start-Sleep -Seconds 2
+                
+                # Restart the server
+                Start-DevServerInternal
+                
+                Write-Host ""
+                Write-Host "  ============================================================" -ForegroundColor Green
+                Write-Host "  UPDATE COMPLETE - Server restarted!" -ForegroundColor Green
+                Write-Host "  ============================================================" -ForegroundColor Green
+                Write-Host ""
+                
+                if ($RequestCount) { $RequestCount.Value = 0 }
+                if ($ErrorCount) { $ErrorCount.Value = 0 }
+            }
+        }
+    }
+    
+    $Script:LastCommitHash = Get-GitLocalHash
+    $Script:Restarting = $false
+}
 
 function Start-DevServer {
     param([switch]$WithMonitor)
@@ -1112,6 +1282,24 @@ function Start-DevServer {
     
     Write-Log "Starting development server..." -Level INFO
     
+    # Initialize git tracking if git is available
+    if (Test-CommandExists "git") {
+        $Script:LastCommitHash = Get-GitLocalHash
+        Write-Host ""
+        Write-Host "  [UPDATE] Git tracking enabled (checking every $Script:UpdateInterval seconds)" -ForegroundColor Magenta
+        Write-Host "  [UPDATE] Current commit: $($Script:LastCommitHash.Substring(0,7))" -ForegroundColor Magenta
+    }
+    
+    Start-DevServerInternal
+    
+    if ($WithMonitor) {
+        Start-ServerMonitor
+    }
+    
+    return $true
+}
+
+function Start-DevServerInternal {
     # Check if port 3000 is already in use
     $portInUse = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
     if ($portInUse) {
@@ -1186,16 +1374,6 @@ function Start-DevServer {
         return $false
     }
     
-    Write-Host ""
-    Write-Host "  ============================================================" -ForegroundColor DarkCyan
-    Write-Host "  SERVER RUNNING - Real-time logs below" -ForegroundColor Cyan
-    Write-Host "  ============================================================" -ForegroundColor DarkCyan
-    Write-Host ""
-    
-    if ($WithMonitor) {
-        Start-ServerMonitor
-    }
-    
     return $true
 }
 
@@ -1219,22 +1397,39 @@ function Start-ServerMonitor {
     $startTime = Get-Date
     $requestCount = 0
     $errorCount = 0
-    $lastStatusTime = $startTime
     $statusInterval = 30  # Show status every 30 seconds
     
-    # Create a timer for status updates
+    # Create timers
     $statusTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    $updateTimer = [System.Diagnostics.Stopwatch]::StartNew()
     
-    # Async reading of output
-    $outputBuilder = New-Object System.Text.StringBuilder
-    $errorBuilder = New-object System.Text.StringBuilder
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor DarkCyan
+    Write-Host "  SERVER RUNNING - Real-time logs below" -ForegroundColor Cyan
+    if (Test-CommandExists "git") {
+        Write-Host "  Auto-update: Checking every $Script:UpdateInterval seconds" -ForegroundColor Magenta
+    }
+    Write-Host "  ============================================================" -ForegroundColor DarkCyan
+    Write-Host ""
     
     while ($Script:ServerProcess -and -not $Script:ServerProcess.HasExited) {
+        # Check for git updates every 10 seconds
+        if (Test-CommandExists "git" -and -not $Script:Restarting) {
+            if ($updateTimer.Elapsed.TotalSeconds -ge $Script:UpdateInterval) {
+                $updateTimer.Restart()
+                
+                $updateInfo = Test-GitUpdates
+                
+                if ($updateInfo.HasUpdates) {
+                    Invoke-AutoUpdate -RestartServer $true -RequestCount ([ref]$requestCount) -ErrorCount ([ref]$errorCount)
+                }
+            }
+        }
+        
         # Read standard output
         while (-not $Script:ServerProcess.StandardOutput.EndOfStream) {
             $line = $Script:ServerProcess.StandardOutput.ReadLine()
             if ($line) {
-                # Parse log for important info
                 $timestamp = Get-Date -Format "HH:mm:ss"
                 
                 # Color code different log types
@@ -1249,7 +1444,6 @@ function Start-ServerMonitor {
                     Write-Host "  [$timestamp] " -NoNewline -ForegroundColor Gray
                     Write-Host $line -ForegroundColor Green
                 } elseif ($line -match "GET|POST|PUT|DELETE|PATCH") {
-                    # HTTP request log
                     Write-Host "  [$timestamp] " -NoNewline -ForegroundColor Gray
                     Write-Host $line -ForegroundColor Cyan
                     $requestCount++
@@ -1260,7 +1454,6 @@ function Start-ServerMonitor {
                     Write-Host "  [$timestamp] $line" -ForegroundColor Gray
                 }
                 
-                # Append to log file
                 Add-Content -Path $Script:ServerLogPath -Value "[$timestamp] $line" -ErrorAction SilentlyContinue
             }
         }
@@ -1287,14 +1480,13 @@ function Start-ServerMonitor {
     }
     
     # Process exited
-    if ($Script:ServerProcess.HasExited) {
+    if ($Script:ServerProcess.HasExited -and -not $Script:Restarting) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
         Write-Host "  SERVER STOPPED" -ForegroundColor Red
         Write-Host "  Exit Code: $($Script:ServerProcess.ExitCode)" -ForegroundColor Yellow
         Write-Host "  ============================================================" -ForegroundColor Red
         
-        # Show final stats
         $uptime = ((Get-Date) - $startTime).ToString("hh\:mm\:ss")
         Write-Host ""
         Write-Host "  Session Statistics:" -ForegroundColor Cyan
@@ -1328,34 +1520,46 @@ function Show-ServerStatus {
         } catch { "N/A" }
     } else { "N/A" }
     
+    # Get git info
+    $gitBranch = Get-GitCurrentBranch
+    $gitHash = Get-GitLocalHash
+    $gitHashShort = if ($gitHash) { $gitHash.Substring(0,7) } else { "N/A" }
+    
     Write-Host ""
-    Write-Host "  ┌────────────────────────────────────────────────────────────┐" -ForegroundColor DarkGray
-    Write-Host "  │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
     Write-Host "SERVER STATUS" -NoNewline -ForegroundColor Cyan
-    Write-Host "                                              │" -ForegroundColor DarkGray
-    Write-Host "  ├────────────────────────────────────────────────────────────┤" -ForegroundColor DarkGray
-    Write-Host "  │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "                                              |" -ForegroundColor DarkGray
+    Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
     Write-Host "URL: " -NoNewline -ForegroundColor White
     Write-Host "http://localhost:3000" -NoNewline -ForegroundColor Green
-    Write-Host "                          │" -ForegroundColor DarkGray
-    Write-Host "  │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "                          |" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
     Write-Host "Uptime: " -NoNewline -ForegroundColor White
     Write-Host "$uptime".PadRight(8) -NoNewline -ForegroundColor Cyan
     Write-Host "  Memory: " -NoNewline -ForegroundColor White
     Write-Host "$memoryStr".PadLeft(10) -NoNewline -ForegroundColor Yellow
-    Write-Host "       │" -ForegroundColor DarkGray
-    Write-Host "  │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "       |" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
     Write-Host "Active Connections: " -NoNewline -ForegroundColor White
     Write-Host "$connections".PadLeft(2) -NoNewline -ForegroundColor Green
     Write-Host "   Total Requests: " -NoNewline -ForegroundColor White
     Write-Host "$requestCount".PadLeft(5) -NoNewline -ForegroundColor Cyan
-    Write-Host "   │" -ForegroundColor DarkGray
-    Write-Host "  │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "   |" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
     Write-Host "Errors: " -NoNewline -ForegroundColor White
     $errorColor = if ($ErrorCount -gt 0) { "Red" } else { "Green" }
     Write-Host "$ErrorCount".PadLeft(3) -NoNewline -ForegroundColor $errorColor
-    Write-Host "                                                  │" -ForegroundColor DarkGray
-    Write-Host "  └────────────────────────────────────────────────────────────┘" -ForegroundColor DarkGray
+    Write-Host "                                                  |" -ForegroundColor DarkGray
+    Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
+    Write-Host "Git: " -NoNewline -ForegroundColor White
+    Write-Host "$gitBranch" -NoNewline -ForegroundColor Magenta
+    Write-Host " @ " -NoNewline -ForegroundColor Gray
+    Write-Host "$gitHashShort" -NoNewline -ForegroundColor Magenta
+    Write-Host "                               |" -ForegroundColor DarkGray
+    Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host ""
 }
 

@@ -2,16 +2,19 @@
 .SYNOPSIS
     Political Spectrum App - Quick Start Script
 .DESCRIPTION
-    Starts the development server with health checks, error handling, and real-time monitoring.
+    Starts the development server with health checks, error handling, real-time monitoring,
+    and automatic git update detection.
 .VERSION
-    2.8.1
+    2.9.0
 #>
 
 param(
     [switch]$Prod,
     [switch]$Studio,
     [switch]$NoMonitor,
-    [int]$Port = 3000
+    [switch]$NoAutoUpdate,    # Disable auto-update checking
+    [int]$Port = 3000,
+    [int]$UpdateInterval = 10  # Check for updates every X seconds
 )
 
 # ============================================
@@ -19,15 +22,22 @@ param(
 # ============================================
 $Config = @{
     AppName = "Political Spectrum App"
-    Version = "2.8.1"
+    Version = "2.9.0"
+    GitRepo = "https://github.com/Shootre21/political-spectrum-app-v2"
 }
 
 # ============================================
-# SERVER MANAGEMENT
+# GLOBAL STATE
 # ============================================
 $Script:ServerProcess = $null
 $Script:ServerLogPath = ".\server.log"
+$Script:LastCommitHash = $null
+$Script:UpdateAvailable = $false
+$Script:Restarting = $false
 
+# ============================================
+# UTILITY FUNCTIONS
+# ============================================
 function Write-Header {
     param([string]$Title)
     
@@ -41,27 +51,245 @@ function Write-Header {
     Write-Host ""
 }
 
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
+    
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    $prefix = switch ($Level) {
+        "UPDATE" { "[UPDATE]" }
+        "ERROR" { "[ERROR]" }
+        "WARN" { "[WARN]" }
+        "SUCCESS" { "[OK]" }
+        default { "[INFO]" }
+    }
+    
+    $color = switch ($Level) {
+        "UPDATE" { "Magenta" }
+        "ERROR" { "Red" }
+        "WARN" { "Yellow" }
+        "SUCCESS" { "Green" }
+        default { "Gray" }
+    }
+    
+    Write-Host "  [$timestamp] $prefix $Message" -ForegroundColor $color
+}
+
+function Test-CommandExists {
+    param([string]$Command)
+    return $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
+}
+
+# ============================================
+# GIT UPDATE SYSTEM
+# ============================================
+function Get-GitCurrentBranch {
+    try {
+        $branch = git rev-parse --abbrev-ref HEAD 2>$null
+        return $branch.Trim()
+    } catch {
+        return "master"
+    }
+}
+
+function Get-GitLocalHash {
+    try {
+        $hash = git rev-parse HEAD 2>$null
+        return $hash.Trim()
+    } catch {
+        return $null
+    }
+}
+
+function Get-GitRemoteHash {
+    param([string]$Branch = "master")
+    
+    try {
+        # Fetch latest from remote (quietly)
+        git fetch origin $Branch 2>$null | Out-Null
+        
+        # Get remote HEAD hash
+        $hash = git rev-parse "origin/$Branch" 2>$null
+        return $hash.Trim()
+    } catch {
+        return $null
+    }
+}
+
+function Test-GitUpdates {
+    $branch = Get-GitCurrentBranch
+    $localHash = Get-GitLocalHash
+    $remoteHash = Get-GitRemoteHash -Branch $branch
+    
+    if ($localHash -and $remoteHash -and $localHash -ne $remoteHash) {
+        return @{
+            HasUpdates = $true
+            LocalHash = $localHash
+            RemoteHash = $remoteHash
+            Branch = $branch
+        }
+    }
+    
+    return @{
+        HasUpdates = $false
+        LocalHash = $localHash
+        RemoteHash = $remoteHash
+        Branch = $branch
+    }
+}
+
+function Invoke-GitPull {
+    param([string]$Branch = "master")
+    
+    Write-Log "Pulling latest changes from origin/$Branch..." -Level "UPDATE"
+    
+    try {
+        # Stash any local changes
+        $stashResult = git stash 2>&1
+        $hasStash = $stashResult -notmatch "No local changes"
+        
+        # Pull changes
+        $pullResult = git pull origin $Branch 2>&1
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "Successfully pulled updates!" -Level "SUCCESS"
+            
+            # Restore stashed changes if any
+            if ($hasStash) {
+                git stash pop 2>&1 | Out-Null
+            }
+            
+            return $true
+        } else {
+            Write-Log "Pull failed: $pullResult" -Level "ERROR"
+            
+            # Restore stashed changes on failure
+            if ($hasStash) {
+                git stash pop 2>&1 | Out-Null
+            }
+            
+            return $false
+        }
+    } catch {
+        Write-Log "Git pull error: $_" -Level "ERROR"
+        return $false
+    }
+}
+
+function Invoke-AutoUpdate {
+    param(
+        [bool]$RestartServer = $true,
+        [ref]$RequestCount,
+        [ref]$ErrorCount
+    )
+    
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Magenta
+    Write-Host "  GIT UPDATE DETECTED!" -ForegroundColor Magenta
+    Write-Host "  ============================================================" -ForegroundColor Magenta
+    Write-Host ""
+    
+    $branch = Get-GitCurrentBranch
+    $updateInfo = Test-GitUpdates
+    
+    if ($updateInfo.HasUpdates) {
+        Write-Log "Local:  $($updateInfo.LocalHash.Substring(0,7))" -Level "UPDATE"
+        Write-Log "Remote: $($updateInfo.RemoteHash.Substring(0,7))" -Level "UPDATE"
+        
+        # Stop server
+        if ($RestartServer -and $Script:ServerProcess -and -not $Script:ServerProcess.HasExited) {
+            Write-Log "Stopping server for update..." -Level "UPDATE"
+            Stop-DevServer
+        }
+        
+        # Pull changes
+        $success = Invoke-GitPull -Branch $branch
+        
+        if ($success) {
+            # Check if dependencies need update
+            if (Test-Path "package.json") {
+                Write-Log "Checking for dependency updates..." -Level "UPDATE"
+                
+                $pkgMgr = if (Test-CommandExists "bun") { "bun" } else { "npm" }
+                & $pkgMgr install 2>&1 | Out-Null
+                
+                Write-Log "Dependencies updated" -Level "SUCCESS"
+            }
+            
+            # Regenerate Prisma client if schema changed
+            if (Test-Path "prisma\schema.prisma") {
+                Write-Log "Checking Prisma schema..." -Level "UPDATE"
+                npx prisma generate 2>&1 | Out-Null
+            }
+            
+            if ($RestartServer) {
+                Write-Log "Restarting server..." -Level "UPDATE"
+                $Script:Restarting = $true
+                
+                Start-Sleep -Seconds 2
+                
+                # Restart the server
+                Start-DevServerInternal
+                
+                Write-Host ""
+                Write-Host "  ============================================================" -ForegroundColor Green
+                Write-Host "  UPDATE COMPLETE - Server restarted!" -ForegroundColor Green
+                Write-Host "  ============================================================" -ForegroundColor Green
+                Write-Host ""
+                
+                # Reset counters on restart
+                if ($RequestCount) { $RequestCount.Value = 0 }
+                if ($ErrorCount) { $ErrorCount.Value = 0 }
+            }
+        }
+    }
+    
+    $Script:LastCommitHash = Get-GitLocalHash
+    $Script:Restarting = $false
+}
+
+# ============================================
+# SERVER MANAGEMENT
+# ============================================
 function Start-DevServer {
     param([switch]$WithMonitor)
     
     Write-Header "Starting Development Server"
     
+    # Initialize git tracking
+    if (-not $NoAutoUpdate) {
+        $Script:LastCommitHash = Get-GitLocalHash
+        Write-Log "Git tracking enabled (checking every $UpdateInterval seconds)" -Level "UPDATE"
+        Write-Log "Current commit: $($Script:LastCommitHash.Substring(0,7))" -Level "UPDATE"
+        Write-Host ""
+    }
+    
+    Start-DevServerInternal
+    
+    if ($WithMonitor) {
+        Start-ServerMonitor
+    }
+    
+    return $true
+}
+
+function Start-DevServerInternal {
     # Check if port is already in use
     $portInUse = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
     if ($portInUse) {
-        Write-Host ""
-        Write-Host "  [!] Port $Port is already in use!" -ForegroundColor Yellow
-        Write-Host "  Attempting to stop existing process..." -ForegroundColor Yellow
+        Write-Log "Port $Port is already in use, stopping existing process..." -Level "WARN"
         
         try {
             $existingProcess = Get-Process -Id $portInUse.OwningProcess -ErrorAction SilentlyContinue
             if ($existingProcess) {
                 Stop-Process -Id $existingProcess.Id -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
-                Write-Host "  [OK] Stopped existing process" -ForegroundColor Green
+                Write-Log "Stopped existing process" -Level "SUCCESS"
             }
         } catch {
-            Write-Host "  [WARN] Could not stop existing process" -ForegroundColor Yellow
+            Write-Log "Could not stop existing process" -Level "WARN"
         }
     }
     
@@ -77,10 +305,8 @@ function Start-DevServer {
         "npm run dev"
     }
     
-    Write-Host ""
-    Write-Host "  Starting: $startCmd" -ForegroundColor Cyan
-    Write-Host "  Port: $Port" -ForegroundColor Cyan
-    Write-Host "  Press Ctrl+C to stop the server" -ForegroundColor Gray
+    Write-Log "Starting: $startCmd" -Level "INFO"
+    Write-Log "Port: $Port" -Level "INFO"
     Write-Host ""
     
     # Start the server process
@@ -112,20 +338,10 @@ function Start-DevServer {
     
     try {
         $null = $Script:ServerProcess.Start()
-        Write-Host "  [OK] Server started (PID: $($Script:ServerProcess.Id))" -ForegroundColor Green
+        Write-Log "Server started (PID: $($Script:ServerProcess.Id))" -Level "SUCCESS"
     } catch {
-        Write-Host "  [ERROR] Failed to start server: $_" -ForegroundColor Red
+        Write-Log "Failed to start server: $_" -Level "ERROR"
         return $false
-    }
-    
-    Write-Host ""
-    Write-Host "  ============================================================" -ForegroundColor DarkCyan
-    Write-Host "  SERVER RUNNING - Real-time logs below" -ForegroundColor Cyan
-    Write-Host "  ============================================================" -ForegroundColor DarkCyan
-    Write-Host ""
-    
-    if ($WithMonitor) {
-        Start-ServerMonitor
     }
     
     return $true
@@ -134,14 +350,14 @@ function Start-DevServer {
 function Stop-DevServer {
     if ($Script:ServerProcess -and -not $Script:ServerProcess.HasExited) {
         Write-Host ""
-        Write-Host "  Stopping server..." -ForegroundColor Yellow
+        Write-Log "Stopping server..." -Level "WARN"
         
         try {
             $Script:ServerProcess.Kill()
             $Script:ServerProcess.WaitForExit(5000)
-            Write-Host "  [OK] Server stopped" -ForegroundColor Green
+            Write-Log "Server stopped" -Level "SUCCESS"
         } catch {
-            Write-Host "  [WARN] Could not gracefully stop server" -ForegroundColor Yellow
+            Write-Log "Could not gracefully stop server" -Level "WARN"
         }
     }
 }
@@ -151,10 +367,34 @@ function Start-ServerMonitor {
     $requestCount = 0
     $errorCount = 0
     $statusInterval = 30
+    $updateCheckCounter = 0
     
     $statusTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    $updateTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor DarkCyan
+    Write-Host "  SERVER RUNNING - Real-time logs below" -ForegroundColor Cyan
+    if (-not $NoAutoUpdate) {
+        Write-Host "  Auto-update: Checking every $UpdateInterval seconds" -ForegroundColor Magenta
+    }
+    Write-Host "  ============================================================" -ForegroundColor DarkCyan
+    Write-Host ""
     
     while ($Script:ServerProcess -and -not $Script:ServerProcess.HasExited) {
+        # Check for git updates
+        if (-not $NoAutoUpdate -and -not $Script:Restarting) {
+            if ($updateTimer.Elapsed.TotalSeconds -ge $UpdateInterval) {
+                $updateTimer.Restart()
+                
+                $updateInfo = Test-GitUpdates
+                
+                if ($updateInfo.HasUpdates) {
+                    Invoke-AutoUpdate -RestartServer $true -RequestCount ([ref]$requestCount) -ErrorCount ([ref]$errorCount)
+                }
+            }
+        }
+        
         # Read standard output
         while (-not $Script:ServerProcess.StandardOutput.EndOfStream) {
             $line = $Script:ServerProcess.StandardOutput.ReadLine()
@@ -209,7 +449,7 @@ function Start-ServerMonitor {
     }
     
     # Process exited
-    if ($Script:ServerProcess.HasExited) {
+    if ($Script:ServerProcess.HasExited -and -not $Script:Restarting) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
         Write-Host "  SERVER STOPPED" -ForegroundColor Red
@@ -247,6 +487,11 @@ function Show-ServerStatus {
         } catch { "N/A" }
     } else { "N/A" }
     
+    # Get current git info
+    $gitBranch = Get-GitCurrentBranch
+    $gitHash = (Get-GitLocalHash)
+    $gitHashShort = if ($gitHash) { $gitHash.Substring(0,7) } else { "N/A" }
+    
     Write-Host ""
     Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host "  | " -NoNewline -ForegroundColor DarkGray
@@ -279,18 +524,26 @@ function Show-ServerStatus {
     Write-Host "$ErrorCount".PadLeft(3) -NoNewline -ForegroundColor $errorColor
     Write-Host "                                                  |" -ForegroundColor DarkGray
     Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "  | " -NoNewline -ForegroundColor DarkGray
+    Write-Host "Git: " -NoNewline -ForegroundColor White
+    Write-Host "$gitBranch" -NoNewline -ForegroundColor Magenta
+    Write-Host " @ " -NoNewline -ForegroundColor Gray
+    Write-Host "$gitHashShort" -NoNewline -ForegroundColor Magenta
+    Write-Host "                               |" -ForegroundColor DarkGray
+    Write-Host "  +------------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host ""
-}
-
-function Test-CommandExists {
-    param([string]$Command)
-    return $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
 }
 
 # ============================================
 # MAIN
 # ============================================
 Write-Header "$($Config.AppName) v$($Config.Version)"
+
+# Check if git is available
+if (-not $NoAutoUpdate -and -not (Test-CommandExists "git")) {
+    Write-Log "Git not found, disabling auto-update" -Level "WARN"
+    $NoAutoUpdate = $true
+}
 
 # Check if dependencies are installed
 if (-not (Test-Path "node_modules")) {
@@ -301,7 +554,16 @@ if (-not (Test-Path "node_modules")) {
 }
 
 # Check if database exists
-if (-not (Test-Path "prisma\dev.db")) {
+$dbPaths = @("prisma\dev.db", "prisma\prod.db", "db\custom.db", "dev.db")
+$dbFound = $false
+foreach ($dbPath in $dbPaths) {
+    if (Test-Path $dbPath) {
+        $dbFound = $true
+        break
+    }
+}
+
+if (-not $dbFound) {
     Write-Host "  Database not found. Setting up database..." -ForegroundColor Yellow
     npx prisma migrate dev --name init 2>&1 | Out-Null
     Write-Host "  [OK] Database created" -ForegroundColor Green
