@@ -5,6 +5,44 @@ All notable changes to the Political News Spectrum app will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-03-24
+
+### New Features
+
+#### Validation & Data Integrity
+- **Validation Utilities** for all numeric values
+  - `validateBiasScore()` - Clamps values to -3 to +3 range
+  - `validateSpectrumScore()` - Clamps values to -10 to +10 range
+  - `validateReliabilityScore()` - Clamps values to 0-100 range
+  - `validateConfidence()` - Clamps values to 0-1 range
+  - `validatePercentage()` - Ensures valid percentages (0-100)
+  - `validateCount()` - Ensures non-negative integers
+- **URL and Date Validation** helpers
+- **Spectrum Label Helper** - Converts scores to readable labels
+
+### Changed
+
+- **Enhanced Headline Cards** with validated data
+  - All bias scores validated before display
+  - Reliability percentages properly clamped
+  - Prevents NaN and undefined values in UI
+- **Coverage Details Sidebar** with validated percentages
+  - All counts validated as non-negative integers
+  - Percentages calculated with proper guards
+- **Source Grid** with validated outlet data
+  - Each outlet's bias and reliability validated
+  - Tooltip shows validated scores
+
+### Technical Details
+
+| Component | Change |
+|-----------|--------|
+| Validation Utils | NEW - validateBiasScore, validateSpectrumScore, etc. |
+| EnhancedHeadlineCard | Updated with validation for all numeric props |
+| CoverageDetailsSidebar | Updated with validated counts and percentages |
+
+---
+
 ## [3.4.0] - 2026-03-24
 
 ### New Features
@@ -270,6 +308,7 @@ If you weren't using AI:
 
 | Version | Name | Key Feature |
 |---------|------|-------------|
+| 3.4.1 | Validation & Data Integrity | All numbers validated and clamped |
 | 3.4.0 | Enhanced UI & Coverage | New headline cards, coverage sidebar, topics |
 | 3.3.1 | Windows Fix | Cross-platform Prisma scripts |
 | 3.3.0 | Archive & Content Reader | Article fetching & archiving |
@@ -282,5 +321,6 @@ If you weren't using AI:
 
 ---
 
+[3.4.1]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.4.0...v3.4.1
 [3.4.0]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.3.1...v3.4.0
 [3.3.1]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.3.0...v3.3.1
