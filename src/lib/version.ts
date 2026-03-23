@@ -1,9 +1,9 @@
 // App Version Configuration
 export const APP_VERSION = {
-  version: '3.0.2',
-  versionName: 'Windows Compatibility Fix',
+  version: '3.1.0',
+  versionName: 'Independent Operation',
   releaseDate: '2026-03-23',
-  buildNumber: 302,
+  buildNumber: 310,
 };
 
 export type UpdateStatus = 'up-to-date' | 'update-available' | 'unknown';
@@ -25,6 +25,24 @@ export function getVersionInfo(): VersionInfo {
     versionName: APP_VERSION.versionName,
     releaseDate: APP_VERSION.releaseDate,
     changelog: [
+      {
+        version: '3.1.0',
+        date: '2026-03-23',
+        changes: [
+          'MAJOR: Removed ZAI SDK dependency - app now runs 100% independently',
+          'NEW: Real RSS feed fetching from 15+ news sources (NYT, Fox, NPR, etc.)',
+          'NEW: news-fetcher.ts module for parsing RSS feeds without AI',
+          'CHANGED: Algorithm analysis is now the PRIMARY method (always works)',
+          'CHANGED: AI analysis is now SECONDARY and optional (requires user\'s own API keys)',
+          'CHANGED: Headlines API now uses RSS feeds instead of AI generation',
+          'IMPROVED: No rate limits - run as much as you want',
+          'IMPROVED: No external dependencies for core functionality',
+          'IMPROVED: Privacy-first - article text never leaves your machine',
+          'REMOVED: ZAI SDK from package.json',
+          'REMOVED: ZAI API key option from settings',
+          'UPDATED: Documentation to reflect independent operation',
+        ],
+      },
       {
         version: '3.0.2',
         date: '2026-03-23',
@@ -62,25 +80,6 @@ export function getVersionInfo(): VersionInfo {
           'NEW: API key status with demo key detection',
           'IMPROVED: Better spectrum score visualization',
           'IMPROVED: Color-coded score categories',
-        ],
-      },
-      {
-        version: '2.5.0',
-        date: '2025-01-18',
-        changes: [
-          'NEW: Provider-specific API handling for each AI model',
-          'NEW: Comprehensive AI provider documentation',
-          'NEW: API key format validation per provider',
-          'NEW: Provider-specific error messages with solutions',
-        ],
-      },
-      {
-        version: '2.4.0',
-        date: '2025-01-18',
-        changes: [
-          'NEW: Playwright demo script for automated screenshots',
-          'NEW: Default demo credentials in setup',
-          'NEW: Interactive API key configuration prompt',
         ],
       },
     ],

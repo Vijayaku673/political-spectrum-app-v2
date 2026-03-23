@@ -1,23 +1,21 @@
 /**
- * Multi-Provider AI Service with Round-Robin Selection
+ * Multi-Provider AI Service - OPTIONAL FEATURE
  * 
- * Supported Providers:
+ * This module provides OPTIONAL AI-powered analysis features.
+ * The app works FULLY without any AI configuration.
+ * 
+ * PRIMARY: Algorithm-based analysis (see bias-engine.ts)
+ * SECONDARY: AI analysis (only if user configures their own API keys)
+ * 
+ * Supported Providers (user must provide their own keys):
  * - OpenAI (ChatGPT): GPT-4o, GPT-4-turbo, GPT-3.5-turbo
  * - Anthropic (Claude): Claude 3.5 Sonnet, Claude 3 Opus
  * - Google (Gemini): Gemini 2.5 Flash, Gemini 1.5 Pro
  * - xAI (Grok): Grok-2, Grok-beta
  * - Moonshot (Kimi): Moonshot-v1-8k, Moonshot-v1-32k
- * - Z.ai: Default model
  * 
- * Each provider has specific:
- * - API endpoint format
- * - Authentication method
- * - Request/response format
- * - Rate limits and pricing
+ * NO ZAI SDK - User brings their own API keys
  */
-
-import ZAI from 'z-ai-web-dev-sdk';
-import { db } from './db';
 
 // ============================================
 // PROVIDER DOCUMENTATION
@@ -104,22 +102,6 @@ export const PROVIDER_DOCS = {
       '128K context model available',
     ],
   },
-  zai: {
-    name: 'Z.ai',
-    envKey: 'ZAI_API_KEY',
-    keyFormat: 'Contact Z.ai',
-    keyPrefix: '',
-    getKeyUrl: 'https://z.ai',
-    pricing: 'Contact for pricing',
-    rateLimit: 'Varies',
-    models: ['z-ai-default'],
-    defaultModel: 'z-ai-default',
-    notes: [
-      'Built-in SDK support',
-      'Works without explicit API key in dev',
-      'Contact Z.ai for production access',
-    ],
-  },
 };
 
 // ============================================
@@ -131,10 +113,10 @@ interface ProviderConfig {
   envKey: string;
   models: string[];
   defaultModel: string;
-  maxTokens: number;
-  temperature: number;
+  endpoint: string;
   parseResponse: (response: unknown) => string;
   buildRequest: (messages: { role: string; content: string }[], model: string) => unknown;
+  headers: (apiKey: string) => Record<string, string>;
 }
 
 const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
@@ -143,8 +125,7 @@ const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     envKey: 'OPENAI_API_KEY',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     defaultModel: 'gpt-4o',
-    maxTokens: 4096,
-    temperature: 0.7,
+    endpoint: 'https://api.openai.com/v1/chat/completions',
     parseResponse: (response: unknown) => {
       const r = response as { choices?: Array<{ message?: { content?: string } }> };
       return r.choices?.[0]?.message?.content || '';
@@ -154,6 +135,10 @@ const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
       messages,
       max_tokens: 4096,
       temperature: 0.7,
+    }),
+    headers: (apiKey) => ({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
     }),
   },
   anthropic: {
@@ -161,58 +146,58 @@ const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     envKey: 'ANTHROPIC_API_KEY',
     models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
     defaultModel: 'claude-3-5-sonnet-20241022',
-    maxTokens: 4096,
-    temperature: 0.7,
+    endpoint: 'https://api.anthropic.com/v1/messages',
     parseResponse: (response: unknown) => {
       const r = response as { content?: Array<{ text?: string }> };
       return r.content?.[0]?.text || '';
     },
     buildRequest: (messages, model) => {
-      // Claude uses different format - system message is separate
       const systemMessage = messages.find(m => m.role === 'system');
       const otherMessages = messages.filter(m => m.role !== 'system');
       return {
         model,
-        messages: otherMessages,
+        messages: otherMessages.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+        })),
         system: systemMessage?.content,
         max_tokens: 4096,
       };
     },
+    headers: (apiKey) => ({
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    }),
   },
   gemini: {
     name: 'Gemini',
     envKey: 'GEMINI_API_KEY',
     models: ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
     defaultModel: 'gemini-2.5-flash',
-    maxTokens: 8192,
-    temperature: 0.7,
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
     parseResponse: (response: unknown) => {
       const r = response as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
       return r.candidates?.[0]?.content?.parts?.[0]?.text || '';
     },
     buildRequest: (messages, model) => {
-      // Gemini uses contents array format
       const contents = messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : m.role,
+        role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       }));
-      return {
-        model,
-        contents,
-        generationConfig: {
-          maxOutputTokens: 8192,
-          temperature: 0.7,
-        },
-      };
+      return { contents };
     },
+    headers: (apiKey) => ({
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    }),
   },
   grok: {
     name: 'Grok',
     envKey: 'GROK_API_KEY',
     models: ['grok-2-latest', 'grok-2-1212', 'grok-beta'],
     defaultModel: 'grok-2-latest',
-    maxTokens: 4096,
-    temperature: 0.7,
+    endpoint: 'https://api.x.ai/v1/chat/completions',
     parseResponse: (response: unknown) => {
       const r = response as { choices?: Array<{ message?: { content?: string } }> };
       return r.choices?.[0]?.message?.content || '';
@@ -223,14 +208,17 @@ const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
       max_tokens: 4096,
       temperature: 0.7,
     }),
+    headers: (apiKey) => ({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    }),
   },
   kimi: {
     name: 'Kimi',
     envKey: 'KIMI_API_KEY',
     models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
     defaultModel: 'moonshot-v1-8k',
-    maxTokens: 8192,
-    temperature: 0.7,
+    endpoint: 'https://api.moonshot.cn/v1/chat/completions',
     parseResponse: (response: unknown) => {
       const r = response as { choices?: Array<{ message?: { content?: string } }> };
       return r.choices?.[0]?.message?.content || '';
@@ -241,33 +229,28 @@ const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
       max_tokens: 8192,
       temperature: 0.7,
     }),
-  },
-  zai: {
-    name: 'Z.ai',
-    envKey: 'ZAI_API_KEY',
-    models: ['z-ai-default'],
-    defaultModel: 'z-ai-default',
-    maxTokens: 4096,
-    temperature: 0.7,
-    parseResponse: (response: unknown) => {
-      const r = response as { choices?: Array<{ message?: { content?: string } }> };
-      return r.choices?.[0]?.message?.content || '';
-    },
-    buildRequest: (messages, model) => ({
-      model,
-      messages,
+    headers: (apiKey) => ({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
     }),
   },
 };
 
 // ============================================
-// ROUND-ROBIN PROVIDER SELECTION
+// PROVIDER SELECTION
 // ============================================
 
 let activeProviders: string[] = [];
 let currentIndex = 0;
 let lastProviderRefresh = 0;
 const REFRESH_INTERVAL = 60000;
+
+/**
+ * Check if AI is available (at least one provider configured)
+ */
+export function isAIAvailable(): boolean {
+  return getActiveProviders().length > 0;
+}
 
 /**
  * Validate API key format for a provider
@@ -318,20 +301,11 @@ function getActiveProviders(): string[] {
   for (const [key, config] of Object.entries(PROVIDER_CONFIG)) {
     const apiKey = process.env[config.envKey];
     if (apiKey && apiKey.length > 0) {
-      // Validate key format
       const validation = validateApiKey(key, apiKey);
       if (validation.valid) {
         activeProviders.push(key);
-      } else {
-        console.warn(`[AI Provider] ${config.name}: ${validation.message}`);
       }
     }
-  }
-  
-  // If no valid providers, use Z.ai as fallback
-  if (activeProviders.length === 0) {
-    console.warn('[AI Provider] No valid API keys found. Using Z.ai SDK default.');
-    activeProviders.push('zai');
   }
   
   lastProviderRefresh = now;
@@ -341,11 +315,11 @@ function getActiveProviders(): string[] {
 /**
  * Get next provider using round-robin
  */
-export function getNextProvider(): string {
+export function getNextProvider(): string | null {
   const providers = getActiveProviders();
   
   if (providers.length === 0) {
-    throw new Error('No AI providers configured. Please set at least one API key in Settings.');
+    return null;
   }
   
   const provider = providers[currentIndex % providers.length];
@@ -398,38 +372,44 @@ export interface AIResponse {
 }
 
 // ============================================
-// CONTENT GENERATION
+// CONTENT GENERATION - USER'S API KEYS ONLY
 // ============================================
 
 /**
- * Generate content using AI with provider-specific handling
+ * Generate content using AI with user's own API keys
+ * Returns null if no AI provider is configured
  */
 export async function generateContent(
   prompt: string, 
   systemPrompt?: string,
   preferredProvider?: string
 ): Promise<AIResponse> {
-  // Use preferred provider if specified and available
+  // Check if any provider is available
   let provider = preferredProvider || '';
   
   if (provider) {
     const providers = getActiveProviders();
     if (!providers.includes(provider)) {
-      console.warn(`[AI Provider] Preferred provider "${provider}" not available, using round-robin`);
-      provider = getNextProvider();
+      provider = getNextProvider() || '';
     }
   } else {
-    provider = getNextProvider();
+    provider = getNextProvider() || '';
+  }
+  
+  if (!provider) {
+    throw new Error('No AI providers configured. Add your API key in Settings to enable AI analysis, or use the algorithm-based analysis.');
   }
   
   const config = PROVIDER_CONFIG[provider];
+  const apiKey = process.env[config.envKey];
+  
+  if (!apiKey) {
+    throw new Error(`API key not configured for ${config.name}. Add your key in Settings.`);
+  }
+  
   const startTime = Date.now();
-  let success = false;
-  let errorMessage = '';
   
   try {
-    const zai = await ZAI.create();
-    
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     
     if (systemPrompt) {
@@ -437,20 +417,30 @@ export async function generateContent(
     }
     messages.push({ role: 'user', content: prompt });
     
-    // Build provider-specific request
-    const request = config.buildRequest(messages, config.defaultModel);
+    // Build request
+    const requestBody = config.buildRequest(messages, config.defaultModel);
     
-    // Make API call through Z.ai SDK (handles provider routing)
-    const completion = await zai.chat.completions.create({
-      messages,
-      model: config.defaultModel,
+    // Special handling for Gemini (different endpoint format)
+    let endpoint = config.endpoint;
+    if (provider === 'gemini') {
+      endpoint = `${config.endpoint}/${config.defaultModel}:generateContent?key=${apiKey}`;
+    }
+    
+    // Make API call
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: config.headers(apiKey),
+      body: JSON.stringify(requestBody),
     });
     
-    // Parse response using provider-specific parser
-    const text = config.parseResponse(completion) || 
-                 (completion as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content || '';
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`${config.name} API error: ${response.status} - ${errorText}`);
+    }
     
-    success = true;
+    const result = await response.json();
+    const text = config.parseResponse(result);
+    
     const duration = Date.now() - startTime;
     
     return {
@@ -460,58 +450,52 @@ export async function generateContent(
       duration,
     };
   } catch (error) {
-    errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
-    // Provide helpful error messages based on provider
+    // Provide helpful error messages
     const docs = PROVIDER_DOCS[provider as keyof typeof PROVIDER_DOCS];
-    const enhancedError = createEnhancedError(provider, errorMessage, docs);
+    let enhancedError = `[${config.name}] ${errorMessage}`;
+    
+    if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+      enhancedError += `\n\nSolution: Check your API key at ${docs?.getKeyUrl || 'provider console'}`;
+    } else if (errorMessage.includes('429') || errorMessage.includes('rate')) {
+      enhancedError += `\n\nRate limit info: ${docs?.rateLimit || 'Check provider documentation'}`;
+    }
     
     throw new Error(enhancedError);
-  } finally {
-    await logRequest(provider, 'completion', success, errorMessage, Date.now() - startTime).catch(console.error);
   }
-}
-
-/**
- * Create enhanced error message with documentation
- */
-function createEnhancedError(
-  provider: string, 
-  originalError: string, 
-  docs: typeof PROVIDER_DOCS.openai | undefined
-): string {
-  let message = `[${provider}] ${originalError}`;
-  
-  // Add common solutions based on error type
-  if (originalError.includes('401') || originalError.includes('Unauthorized')) {
-    message += `\n\nSolution: Check your API key at ${docs?.getKeyUrl || 'provider console'}`;
-  } else if (originalError.includes('429') || originalError.includes('rate')) {
-    message += `\n\nRate limit info: ${docs?.rateLimit || 'Check provider documentation'}`;
-  } else if (originalError.includes('insufficient') || originalError.includes('quota')) {
-    message += `\n\nPricing info: ${docs?.pricing || 'Check provider pricing'}`;
-  }
-  
-  return message;
 }
 
 /**
  * Generate JSON content with schema validation
+ * Returns null if no AI provider is configured
  */
 export async function generateJSON<T>(
   prompt: string, 
   systemPrompt?: string,
   preferredProvider?: string
 ): Promise<{ data: T; provider: string; model: string; duration: number }> {
-  const provider = preferredProvider || getNextProvider();
+  // Check availability first
+  if (!isAIAvailable()) {
+    throw new Error('No AI providers configured. Use algorithm-based analysis instead.');
+  }
+  
+  const provider = preferredProvider || getNextProvider() || '';
   const config = PROVIDER_CONFIG[provider];
+  
+  if (!config) {
+    throw new Error('Invalid provider specified');
+  }
+  
+  const apiKey = process.env[config.envKey];
+  if (!apiKey) {
+    throw new Error(`API key not configured for ${config.name}`);
+  }
+  
   const startTime = Date.now();
-  let success = false;
-  let errorMessage = '';
   
   try {
-    const zai = await ZAI.create();
-    
     const jsonSystemPrompt = `${systemPrompt || ''}
     
 IMPORTANT: You must respond with ONLY valid JSON. No markdown formatting, no code blocks, no explanations - just the raw JSON object.
@@ -523,18 +507,30 @@ Response format: {"key": "value"}`;
       { role: 'user', content: prompt },
     ];
     
-    const completion = await zai.chat.completions.create({
-      messages,
-      model: config.defaultModel,
+    const requestBody = config.buildRequest(messages, config.defaultModel);
+    
+    let endpoint = config.endpoint;
+    if (provider === 'gemini') {
+      endpoint = `${config.endpoint}/${config.defaultModel}:generateContent?key=${apiKey}`;
+    }
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: config.headers(apiKey),
+      body: JSON.stringify(requestBody),
     });
     
-    const text = config.parseResponse(completion) || 
-                 (completion as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content || '';
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`${config.name} API error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    const text = config.parseResponse(result);
     
     // Parse JSON from response
     let data: T;
     try {
-      // Remove markdown code blocks if present
       let cleanText = text.trim();
       if (cleanText.startsWith('```json')) {
         cleanText = cleanText.slice(7);
@@ -545,7 +541,6 @@ Response format: {"key": "value"}`;
         cleanText = cleanText.slice(0, -3);
       }
       
-      // Try to extract JSON from response
       const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         data = JSON.parse(jsonMatch[0]) as T;
@@ -556,7 +551,6 @@ Response format: {"key": "value"}`;
       throw new Error(`Failed to parse JSON response. Raw response: ${text.substring(0, 500)}`);
     }
     
-    success = true;
     const duration = Date.now() - startTime;
     
     return {
@@ -566,36 +560,7 @@ Response format: {"key": "value"}`;
       duration,
     };
   } catch (error) {
-    errorMessage = error instanceof Error ? error.message : 'Unknown error';
     throw error;
-  } finally {
-    await logRequest(provider, 'json_completion', success, errorMessage, Date.now() - startTime).catch(console.error);
-  }
-}
-
-// ============================================
-// REQUEST LOGGING
-// ============================================
-
-async function logRequest(
-  provider: string,
-  requestType: string,
-  success: boolean,
-  errorMessage?: string,
-  duration?: number
-): Promise<void> {
-  try {
-    await db.requestLog.create({
-      data: {
-        provider,
-        requestType,
-        success,
-        errorMessage,
-        duration,
-      },
-    });
-  } catch (error) {
-    console.error('Failed to log request:', error);
   }
 }
 
@@ -609,6 +574,9 @@ export async function getProviderStats(): Promise<Array<{
   successRate: number;
   avgDuration: number;
 }>> {
+  // Import db only if needed
+  const { db } = await import('./db');
+  
   const logs = await db.requestLog.groupBy({
     by: ['provider'],
     _count: { id: true },

@@ -11,7 +11,6 @@ interface AppSettings {
     openai: string;
     anthropic: string;
     kimi: string;
-    zai: string;
     grok: string;
     gemini: string;
   };
@@ -31,7 +30,6 @@ const DEFAULT_SETTINGS: AppSettings = {
     openai: '',
     anthropic: '',
     kimi: '',
-    zai: '',
     grok: '',
     gemini: '',
   },
@@ -124,7 +122,6 @@ function updateEnvFile(apiKeys: AppSettings['apiKeys']): void {
     openai: 'OPENAI_API_KEY',
     anthropic: 'ANTHROPIC_API_KEY',
     kimi: 'KIMI_API_KEY',
-    zai: 'ZAI_API_KEY',
     grok: 'GROK_API_KEY',
     gemini: 'GEMINI_API_KEY',
   };

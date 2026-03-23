@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import analyzeArticle, { type BiasAnalysisResult, type HeadlineData } from '@/lib/bias-engine';
 import { db } from '@/lib/db';
 
+/**
+ * Algorithm Analysis API - PRIMARY METHOD
+ * 
+ * This endpoint provides algorithm-based bias analysis.
+ * NO API KEYS REQUIRED - Works 100% locally.
+ * 
+ * Flow:
+ * 1. Article is stored in database (if not exists)
+ * 2. Algorithm analyzes the article
+ * 3. Analysis results are stored and returned
+ * 
+ * This is the DEFAULT analysis method.
+ */
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as HeadlineData;
@@ -14,15 +28,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`[Algorithm] Analyzing: "${headline}" from ${source}`);
+
     // Check if article already analyzed with algorithm
     const existingArticle = await db.article.findFirst({
       where: {
         title: headline,
         source: source,
+        aiProvider: 'algorithm',
       },
     });
 
-    // Run algorithm analysis
+    // Run algorithm analysis (ALWAYS works, no AI needed)
     const analysis = analyzeArticle({
       headline,
       source,
@@ -31,14 +48,17 @@ export async function POST(request: NextRequest) {
       publishedAt,
     });
 
-    // Store/update in database
+    console.log(`[Algorithm] Analysis complete. Bias: ${analysis.finalBias.toFixed(2)}, Confidence: ${(analysis.confidence * 100).toFixed(0)}%`);
+
+    // Store/update in database - THIS ALWAYS HAPPENS
     const articleData = {
+      id: existingArticle?.id || crypto.randomUUID(),
       title: headline,
       url: url || '',
       source: source,
       publishedAt: publishedAt ? new Date(publishedAt) : new Date(),
       category: analysis.evidence.topics[0] || 'Politics',
-      spectrumScore: analysis.finalBias,
+      spectrumScore: analysis.finalBias * 3.33, // Convert -3 to +3 scale to -10 to +10
       popularityScore: 'Medium',
       leftWingSummary: analysis.evidence.framingTerms
         .filter(t => t.leaning === 'left')
@@ -55,8 +75,15 @@ export async function POST(request: NextRequest) {
       rightWingPoints: JSON.stringify(analysis.evidence.framingTerms.filter(t => t.leaning === 'right').map(t => t.term)),
       socialistPoints: JSON.stringify(analysis.evidence.socialistMarkers),
       spectrumJustification: `Outlet baseline: ${analysis.outletLabel}. Article framing deviation: ${analysis.articleDelta > 0 ? '+' : ''}${analysis.articleDelta.toFixed(2)}. Tags: ${analysis.tags.join(', ')}`,
+      outletBias: analysis.outletBias,
+      articleDelta: analysis.articleDelta,
+      evidence: JSON.stringify(analysis.evidence),
+      tags: JSON.stringify(analysis.tags),
+      confidence: analysis.confidence,
+      analysisMethod: 'algorithm',
       wasEdited: false,
       aiProvider: 'algorithm',
+      updatedAt: new Date(),
     };
 
     try {
@@ -70,9 +97,10 @@ export async function POST(request: NextRequest) {
           data: articleData,
         });
       }
+      console.log(`[Algorithm] Article stored in database`);
     } catch (dbError) {
-      console.error('Database error:', dbError);
-      // Continue without storing
+      console.error('[Algorithm] Database error:', dbError);
+      // Continue without storing - analysis still works
     }
 
     // Format response for frontend compatibility
@@ -132,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Error in algorithm analysis:', error);
+    console.error('[Algorithm] Error in analysis:', error);
     return NextResponse.json(
       { error: 'Failed to analyze article', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

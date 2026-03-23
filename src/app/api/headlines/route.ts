@@ -1,92 +1,39 @@
 import { NextResponse } from 'next/server';
-import { generateJSON } from '@/lib/ai-provider';
-import { db } from '@/lib/db';
+import { getHeadlinesForFrontend } from '@/lib/news-fetcher';
 
-interface Headline {
-  headline: string;
-  source: string;
-  url: string;
-  emoji: string;
-  publishedAt: string;
-}
-
-interface HeadlinesResponse {
-  leftHeadlines: Headline[];
-  rightHeadlines: Headline[];
-  centerHeadlines: Headline[];
-}
-
+/**
+ * Headlines API - NO AI REQUIRED
+ * 
+ * Fetches REAL headlines from RSS feeds and stores them in the database.
+ * This is the PRIMARY method for loading articles - works completely locally.
+ * 
+ * Flow:
+ * 1. Fetch from RSS feeds (NYT, Fox, NPR, etc.)
+ * 2. Store ALL articles in database
+ * 3. Return formatted headlines for frontend
+ * 
+ * AI is NOT used here - articles are real news from real sources.
+ */
 export async function GET() {
   try {
-    const today = new Date();
-    const formattedDate = today.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
-
-    const prompt = `Generate a list of recent, distinct, and highly significant news headlines from US media. 
-    IMPORTANT: The current date is ${formattedDate}. All articles must be published within the last month. 
-    Focus on major, trending topics that are currently driving the national conversation, including significant political events, 
-    major policy changes, or impactful national incidents. 
+    console.log('[Headlines] Fetching real headlines from RSS feeds...');
     
-    Provide 4 headlines from left-leaning sources (like CNN, MSNBC, NPR), 
-    4 from right-leaning sources (like FOX News, Daily Wire), 
-    and 4 from center/mainstream sources (like Politico, CBS, Google News, Yahoo News). 
+    const result = await getHeadlinesForFrontend();
     
-    For each headline, provide the source, the full URL to the article, an emoji that reflects its tone, 
-    and the publication date. Use moderate emojis (e.g., 😐, 🤔) for neutral stories, 
-    and more impactful emojis (e.g., 🤯, 😡, 🚨) for highly partisan or urgent stories.
-
-    Respond with a JSON object in this exact format:
-    {
-      "leftHeadlines": [
-        {"headline": "...", "source": "...", "url": "...", "emoji": "...", "publishedAt": "..."}
-      ],
-      "rightHeadlines": [...],
-      "centerHeadlines": [...]
-    }`;
-
-    const systemPrompt = `You are a political news analyst. Generate realistic, current news headlines 
-    from various media outlets across the political spectrum. Each headline should represent actual 
-    ongoing news topics and debates in American politics. Use diverse, credible sources.`;
-
-    const result = await generateJSON<HeadlinesResponse>(prompt, systemPrompt);
-
-    // Store headlines in database for history
-    const allHeadlines = [
-      ...result.data.leftHeadlines.map(h => ({ ...h, leaning: 'left' })),
-      ...result.data.rightHeadlines.map(h => ({ ...h, leaning: 'right' })),
-      ...result.data.centerHeadlines.map(h => ({ ...h, leaning: 'center' })),
-    ];
-
-    // Store each headline as an article (without full analysis)
-    for (const headline of allHeadlines) {
-      try {
-        await db.article.create({
-          data: {
-            title: headline.headline,
-            url: headline.url,
-            source: headline.source,
-            publishedAt: new Date(headline.publishedAt || new Date()),
-            category: 'Politics',
-            aiProvider: result.provider,
-          },
-        });
-      } catch {
-        // Article might already exist, skip
-      }
-    }
-
-    return NextResponse.json({
-      ...result.data,
-      provider: result.provider,
-      model: result.model,
-    });
+    console.log(`[Headlines] Successfully fetched ${result.leftHeadlines.length + result.centerHeadlines.length + result.rightHeadlines.length} headlines`);
+    
+    return NextResponse.json(result);
   } catch (error) {
-    console.error('Error fetching headlines:', error);
+    console.error('[Headlines] Error fetching headlines:', error);
+    
     return NextResponse.json(
-      { error: 'Failed to fetch headlines', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Failed to fetch headlines', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        leftHeadlines: [],
+        centerHeadlines: [],
+        rightHeadlines: [],
+      },
       { status: 500 }
     );
   }

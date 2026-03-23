@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateJSON } from '@/lib/ai-provider';
+import { generateJSON, isAIAvailable } from '@/lib/ai-provider';
 import { db } from '@/lib/db';
+
+/**
+ * AI Analysis API - OPTIONAL FEATURE
+ * 
+ * This endpoint provides OPTIONAL AI-powered analysis.
+ * Requires user to configure their own API keys in Settings.
+ * 
+ * PRIMARY: Use /api/analyze-algo for algorithm-based analysis (no API keys needed)
+ * SECONDARY: Use this endpoint for AI analysis (requires API key)
+ */
 
 interface AnalysisRequest {
   headline: string;
@@ -37,6 +47,18 @@ interface AnalysisResult {
 
 export async function POST(request: NextRequest) {
   try {
+    // Check if AI is available
+    if (!isAIAvailable()) {
+      return NextResponse.json(
+        { 
+          error: 'AI analysis not available', 
+          message: 'No AI providers configured. Please add your API key in Settings, or use the algorithm-based analysis instead.',
+          useAlgorithm: true,
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json() as AnalysisRequest;
     const { headline, source, url, publishedAt } = body;
 
@@ -53,6 +75,7 @@ export async function POST(request: NextRequest) {
         title: headline,
         source: source,
         leftWingSummary: { not: null },
+        aiProvider: { not: 'algorithm' }, // Only return AI-analyzed articles
       },
     });
 
@@ -91,10 +114,11 @@ export async function POST(request: NextRequest) {
         spectrumJustification: existingArticle.spectrumJustification || '',
         provider: existingArticle.aiProvider || 'cached',
         cached: true,
+        method: 'ai',
       });
     }
 
-    // Generate new analysis
+    // Generate new AI analysis
     const analysisPrompt = `Analyze the news article provided below.
 
     Article to Analyze:
@@ -129,6 +153,7 @@ export async function POST(request: NextRequest) {
 
     // Store the analysis in database
     const articleData = {
+      id: crypto.randomUUID(),
       title: headline,
       url: url,
       source: source,
@@ -146,6 +171,7 @@ export async function POST(request: NextRequest) {
       wasEdited: result.data.wasEdited.status,
       editReasoning: result.data.wasEdited.reasoning,
       aiProvider: result.provider,
+      updatedAt: new Date(),
     };
 
     // Try to update existing or create new
@@ -176,11 +202,24 @@ export async function POST(request: NextRequest) {
       provider: result.provider,
       model: result.model,
       cached: false,
+      method: 'ai',
     });
   } catch (error) {
     console.error('Error analyzing article:', error);
+    
+    // Provide helpful error message
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isNotConfigured = errorMessage.includes('No AI providers configured');
+    
     return NextResponse.json(
-      { error: 'Failed to analyze article', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Failed to analyze article with AI', 
+        details: errorMessage,
+        useAlgorithm: isNotConfigured,
+        message: isNotConfigured 
+          ? 'No AI providers configured. Use algorithm-based analysis instead.'
+          : errorMessage,
+      },
       { status: 500 }
     );
   }
