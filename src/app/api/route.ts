@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, isDbAvailable, getDbError, getDbUrl } from '@/lib/db';
 import { isAIAvailable, getProviderStatus } from '@/lib/ai-provider';
 import fs from 'fs';
 import path from 'path';
@@ -17,30 +17,48 @@ export async function GET(request: NextRequest) {
   
   const diagnostics: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
-    version: '3.1.0',
+    version: '3.2.0',
     mode: 'independent',
   };
   
   try {
     // Database check
     if (type === 'all' || type === 'database') {
-      try {
-        const articleCount = await db.article.count();
-        const recentArticles = await db.article.findMany({
-          take: 3,
-          orderBy: { createdAt: 'desc' },
-          select: { title: true, source: true, createdAt: true },
-        });
-        
+      const dbAvailable = isDbAvailable();
+      const dbError = getDbError();
+      const dbUrl = getDbUrl();
+      
+      if (dbAvailable) {
+        try {
+          const articleCount = await db.article.count();
+          const recentArticles = await db.article.findMany({
+            take: 3,
+            orderBy: { createdAt: 'desc' },
+            select: { title: true, source: true, createdAt: true },
+          });
+          
+          diagnostics.database = {
+            status: 'healthy',
+            available: true,
+            url: dbUrl,
+            articleCount,
+            recentArticles,
+          };
+        } catch (dbQueryError) {
+          diagnostics.database = {
+            status: 'error',
+            available: false,
+            url: dbUrl,
+            error: dbQueryError instanceof Error ? dbQueryError.message : 'Unknown query error',
+          };
+        }
+      } else {
         diagnostics.database = {
-          status: 'healthy',
-          articleCount,
-          recentArticles,
-        };
-      } catch (dbError) {
-        diagnostics.database = {
-          status: 'error',
-          error: dbError instanceof Error ? dbError.message : 'Unknown error',
+          status: 'unavailable',
+          available: false,
+          url: dbUrl,
+          error: dbError || 'Database not initialized',
+          note: 'Database will be created automatically when needed',
         };
       }
     }
@@ -107,16 +125,25 @@ export async function GET(request: NextRequest) {
           heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024) + ' MB',
           rss: Math.round(memUsage.rss / 1024 / 1024) + ' MB',
         },
+        env: {
+          DATABASE_URL: process.env.DATABASE_URL ? 'set' : 'not set (using default)',
+          NODE_ENV: process.env.NODE_ENV || 'development',
+        },
       };
     }
     
     // Overall health
-    const dbHealthy = (diagnostics.database as { status: string })?.status === 'healthy';
+    const dbStatus = (diagnostics.database as { status: string; available?: boolean })?.status;
+    const dbHealthy = dbStatus === 'healthy';
+    const dbUnavailable = dbStatus === 'unavailable';
+    
     diagnostics.overall = {
-      status: dbHealthy ? 'healthy' : 'degraded',
+      status: dbHealthy ? 'healthy' : (dbUnavailable ? 'initializing' : 'degraded'),
       message: dbHealthy 
         ? 'All systems operational. No AI required for core functionality.'
-        : 'Database issues detected. Check configuration.',
+        : (dbUnavailable 
+          ? 'Database not yet initialized. Click an article to create it.'
+          : 'Database issues detected. Check configuration.'),
       independent: true,
       aiRequired: false,
     };

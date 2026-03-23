@@ -3,7 +3,7 @@
  * Provides comprehensive analytics and insights for articles
  */
 
-import { db } from './db';
+import { db, isDbAvailable, getDbError } from './db';
 import { getOutletInfo, getAllOutlets, getBiasLabel } from './outlets';
 import { getAuthorInfo, getAllAuthors } from './authors';
 
@@ -17,6 +17,11 @@ export interface AnalyticsOverview {
   biasDistribution: { left: number; center: number; right: number };
   topicDistribution: { topic: string; count: number }[];
   recentTrends: { date: string; count: number; avgBias: number }[];
+  databaseStatus: {
+    available: boolean;
+    error: string | null;
+    url: string;
+  };
 }
 
 export interface SourceAnalytics {
@@ -53,77 +58,128 @@ export interface TimeSeriesData {
  * Get overall analytics overview
  */
 export async function getAnalyticsOverview(): Promise<AnalyticsOverview> {
-  // Get all analyzed articles
-  const articles = await db.article.findMany({
-    where: {
-      leftWingSummary: { not: null },
-    },
-    select: {
-      id: true,
-      source: true,
-      spectrumScore: true,
-      category: true,
-      createdAt: true,
-    },
-  });
+  const { getDbUrl } = await import('./db');
+  
+  // Check database availability
+  const dbAvailable = isDbAvailable();
+  const dbError = getDbError();
+  const dbUrl = getDbUrl();
+  
+  // Return empty stats if database is not available
+  if (!dbAvailable) {
+    console.log('[Analytics] Database not available, returning empty stats');
+    return {
+      totalArticles: 0,
+      analyzedArticles: 0,
+      avgBiasScore: 0,
+      avgConfidence: 0,
+      topSources: [],
+      biasDistribution: { left: 0, center: 0, right: 0 },
+      topicDistribution: [],
+      recentTrends: [],
+      databaseStatus: {
+        available: false,
+        error: dbError,
+        url: dbUrl,
+      },
+    };
+  }
 
-  const totalArticles = await db.article.count();
-  const analyzedArticles = articles.length;
-
-  // Calculate average bias
-  const avgBiasScore = articles.reduce((sum, a) => sum + (a.spectrumScore || 0), 0) / (analyzedArticles || 1);
-
-  // Source distribution
-  const sourceCounts = new Map<string, { count: number; bias: number }>();
-  articles.forEach(a => {
-    const existing = sourceCounts.get(a.source) || { count: 0, bias: 0 };
-    sourceCounts.set(a.source, {
-      count: existing.count + 1,
-      bias: existing.bias + (a.spectrumScore || 0),
+  try {
+    // Get all analyzed articles
+    const articles = await db.article.findMany({
+      where: {
+        leftWingSummary: { not: null },
+      },
+      select: {
+        id: true,
+        source: true,
+        spectrumScore: true,
+        category: true,
+        createdAt: true,
+      },
     });
-  });
 
-  const topSources = Array.from(sourceCounts.entries())
-    .map(([source, data]) => ({
-      source,
-      count: data.count,
-      avgBias: data.bias / data.count,
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+    const totalArticles = await db.article.count();
+    const analyzedArticles = articles.length;
 
-  // Bias distribution
-  const biasDistribution = {
-    left: articles.filter(a => (a.spectrumScore || 0) < -1).length,
-    center: articles.filter(a => Math.abs(a.spectrumScore || 0) <= 1).length,
-    right: articles.filter(a => (a.spectrumScore || 0) > 1).length,
-  };
+    // Calculate average bias
+    const avgBiasScore = articles.reduce((sum, a) => sum + (a.spectrumScore || 0), 0) / (analyzedArticles || 1);
 
-  // Topic distribution
-  const topicCounts = new Map<string, number>();
-  articles.forEach(a => {
-    if (a.category) {
-      topicCounts.set(a.category, (topicCounts.get(a.category) || 0) + 1);
-    }
-  });
+    // Source distribution
+    const sourceCounts = new Map<string, { count: number; bias: number }>();
+    articles.forEach(a => {
+      const existing = sourceCounts.get(a.source) || { count: 0, bias: 0 };
+      sourceCounts.set(a.source, {
+        count: existing.count + 1,
+        bias: existing.bias + (a.spectrumScore || 0),
+      });
+    });
 
-  const topicDistribution = Array.from(topicCounts.entries())
-    .map(([topic, count]) => ({ topic, count }))
-    .sort((a, b) => b.count - a.count);
+    const topSources = Array.from(sourceCounts.entries())
+      .map(([source, data]) => ({
+        source,
+        count: data.count,
+        avgBias: data.bias / data.count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
 
-  // Recent trends (last 7 days)
-  const recentTrends = await getRecentTrends();
+    // Bias distribution
+    const biasDistribution = {
+      left: articles.filter(a => (a.spectrumScore || 0) < -1).length,
+      center: articles.filter(a => Math.abs(a.spectrumScore || 0) <= 1).length,
+      right: articles.filter(a => (a.spectrumScore || 0) > 1).length,
+    };
 
-  return {
-    totalArticles,
-    analyzedArticles,
-    avgBiasScore,
-    avgConfidence: 0.75, // Placeholder
-    topSources,
-    biasDistribution,
-    topicDistribution,
-    recentTrends,
-  };
+    // Topic distribution
+    const topicCounts = new Map<string, number>();
+    articles.forEach(a => {
+      if (a.category) {
+        topicCounts.set(a.category, (topicCounts.get(a.category) || 0) + 1);
+      }
+    });
+
+    const topicDistribution = Array.from(topicCounts.entries())
+      .map(([topic, count]) => ({ topic, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Recent trends (last 7 days)
+    const recentTrends = await getRecentTrends();
+
+    return {
+      totalArticles,
+      analyzedArticles,
+      avgBiasScore,
+      avgConfidence: 0.75, // Placeholder
+      topSources,
+      biasDistribution,
+      topicDistribution,
+      recentTrends,
+      databaseStatus: {
+        available: true,
+        error: null,
+        url: dbUrl,
+      },
+    };
+  } catch (error) {
+    console.error('[Analytics] Error fetching analytics:', error);
+    return {
+      totalArticles: 0,
+      analyzedArticles: 0,
+      avgBiasScore: 0,
+      avgConfidence: 0,
+      topSources: [],
+      biasDistribution: { left: 0, center: 0, right: 0 },
+      topicDistribution: [],
+      recentTrends: [],
+      databaseStatus: {
+        available: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        url: dbUrl,
+      },
+    };
+  }
 }
 
 /**
