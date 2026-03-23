@@ -53,7 +53,12 @@ import {
   User,
   BookOpen,
   Layers,
-  Palette
+  Palette,
+  Archive,
+  Bookmark,
+  FileText,
+  ExternalLink,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -204,6 +209,19 @@ export default function PoliticalSpectrumApp() {
   
   // Settings dialog
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  
+  // Article content state
+  const [articleContent, setArticleContent] = useState<{
+    content: string;
+    title: string;
+    isPaywalled: boolean;
+    loading: boolean;
+    error?: string;
+  } | null>(null);
+  
+  // Archive state
+  const [archiving, setArchiving] = useState(false);
+  const [isArchived, setIsArchived] = useState(false);
   
   // Analytics state
   const [analyticsData, setAnalyticsData] = useState<{
@@ -539,6 +557,86 @@ export default function PoliticalSpectrumApp() {
     setView('headlines');
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
+    setArticleContent(null);
+    setIsArchived(false);
+  };
+
+  // Fetch article content for reading
+  const fetchContent = async () => {
+    if (!analysis?.article?.url) return;
+    
+    setArticleContent({ content: '', title: '', isPaywalled: false, loading: true });
+    
+    try {
+      const response = await fetch('/api/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: analysis.article.url }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch content');
+      const data = await response.json();
+      
+      setArticleContent({
+        content: data.content || '',
+        title: data.title || analysis.article.title,
+        isPaywalled: data.isPaywalled || false,
+        loading: false,
+        error: data.error,
+      });
+      
+      if (data.isPaywalled) {
+        toast.info('This article appears to be paywalled. Limited content available.');
+      }
+    } catch (error) {
+      console.error('Error fetching content:', error);
+      setArticleContent({
+        content: '',
+        title: analysis.article.title,
+        isPaywalled: false,
+        loading: false,
+        error: 'Unable to fetch article content. The article may be paywalled or unavailable.',
+      });
+      toast.error('Could not fetch article content');
+    }
+  };
+
+  // Archive article
+  const archiveArticle = async () => {
+    if (!analysis) return;
+    
+    setArchiving(true);
+    
+    try {
+      const response = await fetch('/api/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleId: analysis.article.url.replace(/[^a-zA-Z0-9]/g, '_'),
+          title: analysis.article.title,
+          url: analysis.article.url,
+          source: analysis.article.source,
+          publishedAt: analysis.article.publishedAt,
+          spectrumScore: analysis.spectrumScore,
+          evidence: analysis.evidence,
+          tags: analysis.tags,
+          outletBias: analysis.outletBias,
+          articleDelta: analysis.articleDelta,
+          finalBias: analysis.finalBias,
+          signals: analysis.signals,
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to archive');
+      
+      setIsArchived(true);
+      toast.success('Article archived for later reading!');
+    } catch (error) {
+      console.error('Error archiving:', error);
+      toast.error('Failed to archive article');
+    } finally {
+      setArchiving(false);
+    }
   };
 
   // Get bias color
@@ -1307,32 +1405,112 @@ export default function PoliticalSpectrumApp() {
                     Signal Analysis
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Headline Emotionality</span>
-                      <p className="text-lg font-semibold">{analysis.signals.headlineEmotionality.toFixed(1)}/10</p>
+                <CardContent className="space-y-3">
+                  {[
+                    { label: 'Headline Emotionality', value: analysis.signals.headlineEmotionality, color: 'purple' },
+                    { label: 'Source Diversity', value: analysis.signals.sourceDiversity, color: 'green' },
+                    { label: 'Partisan Rhetoric', value: analysis.signals.partisanRhetoric, color: 'red' },
+                    { label: 'Authoritarian Rhetoric', value: analysis.signals.authoritarianRhetoric, color: 'orange' },
+                    { label: 'Socialist Rhetoric', value: analysis.signals.socialistRhetoric, color: 'blue' },
+                  ].map((signal) => (
+                    <div key={signal.label} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{signal.label}</span>
+                        <span className="font-semibold">{signal.value.toFixed(1)}/10</span>
+                      </div>
+                      <Progress 
+                        value={signal.value * 10} 
+                        max={10}
+                        className="h-2"
+                        // @ts-expect-error - possibly undefined
+                        // style={{'& > div': { backgroundColor: 'var(--progress-bg)' }}}
+                      />
                     </div>
-                    <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Source Diversity</span>
-                      <p className="text-lg font-semibold">{analysis.signals.sourceDiversity.toFixed(1)}/10</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Partisan Rhetoric</span>
-                      <p className="text-lg font-semibold">{analysis.signals.partisanRhetoric.toFixed(1)}/10</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Authoritarian Rhetoric</span>
-                      <p className="text-lg font-semibold">{analysis.signals.authoritarianRhetoric.toFixed(1)}/10</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Socialist Rhetoric</span>
-                      <p className="text-lg font-semibold">{analysis.signals.socialistRhetoric.toFixed(1)}/10</p>
-                    </div>
-                  </div>
+                  ))}
                 </CardContent>
               </Card>
             )}
+
+            {/* Action Buttons */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Layers className="w-4 h-4" />
+                  Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={archiveArticle}
+                    disabled={archiving || isArchived}
+                    variant={isArchived ? "outline" : "default"}
+                    className="flex-1"
+                  >
+                    {archiving ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : isArchived ? (
+                      <CheckCircle className="w-4 h-4 mr-2 text-green-600" />
+                    ) : (
+                      <Archive className="w-4 h-4 mr-2" />
+                    )}
+                    {isArchived ? 'Archived' : 'Archive'}
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    onClick={fetchContent}
+                    disabled={articleContent?.loading}
+                    className="flex-1"
+                  >
+                    {articleContent?.loading ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <FileText className="w-4 h-4 mr-2" />
+                    )}
+                    Read Article
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    as="a"
+                    href={analysis.article.url}
+                    target="_blank"
+                    className="flex-1"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Original
+                  </Button>
+                </div>
+                
+                {articleContent && !articleContent.loading && (
+                  <div className="mt-4">
+                    {articleContent.isPaywalled && (
+                      <Alert className="mb-2">
+                        <Lock className="w-4 h-4" />
+                        <AlertDescription>
+                          This article may be behind a paywall. Limited content is available.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {articleContent.error ? (
+                      <Alert variant="destructive">
+                        <AlertCircle className="w-4 h-4" />
+                        <AlertDescription>
+                          {articleContent.error}
+                        </AlertDescription>
+                      </Alert>
+                    ) : articleContent.content ? (
+                      <ScrollArea className="h-64 w-full rounded-lg border p-3 bg-slate-50 dark:bg-slate-900">
+                        <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                          {articleContent.content}
+                        </p>
+                      </ScrollArea>
+                    ) : null}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Evidence Panel (Algorithm only) */}
             {analysis.method === 'algorithm' && analysis.evidence && settings?.preferences?.showEvidence && (

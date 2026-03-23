@@ -1,9 +1,9 @@
 // App Version Configuration
 export const APP_VERSION = {
-  version: '3.2.0',
-  versionName: 'Database Auto-Config',
+  version: '3.3.0',
+  versionName: 'Archive & Content Reader',
   releaseDate: '2026-03-23',
-  buildNumber: 320,
+  buildNumber: 330,
 };
 
 export type UpdateStatus = 'up-to-date' | 'update-available' | 'unknown';

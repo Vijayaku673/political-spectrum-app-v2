@@ -5,6 +5,45 @@ All notable changes to the Political News Spectrum app will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-03-23
+
+### New Features
+
+#### Article Content Reader
+- **Read Article button** - Fetch and display full article content (when available)
+- **Paywall detection** - Warns when articles may be paywalled
+- **Content extraction** - Uses cheerio to extract readable content from URLs
+- **Works independently** - No external AI dependencies
+
+#### Article Archiving
+- **Archive button** - Save articles for later reading
+- **Full content storage** - Archived articles include full text
+- **Analysis preservation** - All bias analysis data is preserved
+- **Easy retrieval** - View archived articles from the Archive tab
+
+### Changed
+
+- **Enhanced Signal Analysis Display**
+  - Progress bars for each signal metric
+  - Better visual representation of scores
+  - More intuitive 0-10 scale display
+
+- **Database Schema**
+  - Added `isArchived` field to Article model
+  - Added `fullContent` field for article text storage
+
+### Technical Details
+
+| Component | Change |
+|-----------|--------|
+| Article Fetcher | NEW - `src/lib/article-fetcher.ts` |
+| Content API | NEW - `src/app/api/content/route.ts` |
+| Archive API | NEW - `src/app/api/archive/route.ts` |
+| Signal Display | Enhanced with progress bars |
+| Prisma Schema | Added isArchived, fullContent |
+
+---
+
 ## [3.2.0] - 2026-03-23
 
 ### Critical Fixes

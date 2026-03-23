@@ -63,6 +63,8 @@ model Article {
   confidence            Float?
   analysisMethod        String?
   aiProvider            String?
+  isArchived            Boolean  @default(false)
+  fullContent           String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime
 
@@ -72,6 +74,7 @@ model Article {
   @@index([publishedAt])
   @@index([category])
   @@index([source])
+  @@index([isArchived])
 }
 
 model AuthorHistory {
