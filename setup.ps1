@@ -31,7 +31,7 @@ param(
 # ============================================
 $Config = @{
     AppName = "Political Spectrum App"
-    Version = "2.9.1"
+    Version = "3.0.1"
     NodeMinVersion = "18.0.0"
     BunMinVersion = "1.0.0"
     RequiredPorts = @(3000, 5555)
@@ -59,7 +59,7 @@ $Config = @{
 #    - Z.ai: Contact Z.ai for API access
 
 # Database
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="file:./db/custom.db"
 
 # AI Provider API Keys (REPLACE THESE WITH YOUR ACTUAL KEYS!)
 OPENAI_API_KEY="sk-demo-REPLACE-WITH-YOUR-KEY"
@@ -262,7 +262,7 @@ $ErrorCodes = @{
     }
     E008 = @{
         Message = "Environment file creation failed"
-        Solution = "Create .env file manually with DATABASE_URL='file:./dev.db'"
+        Solution = "Create .env file manually with DATABASE_URL='file:./db/custom.db'"
     }
     E009 = @{
         Message = "Build failed"
@@ -779,34 +779,48 @@ function Invoke-DatabaseSetup {
     
     # Generate Prisma client
     Write-Log "Generating Prisma client..." -Level INFO
+    Write-Host "  Running: npx prisma generate" -ForegroundColor Gray
     try {
-        npx prisma generate 2>&1 | Out-Null
-        Write-Log "Prisma client generated" -Level SUCCESS
+        $prismaOutput = npx prisma generate 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "Prisma client generated" -Level SUCCESS
+            Write-Host "  [OK] Prisma client generated" -ForegroundColor Green
+        } else {
+            Write-Host "  Prisma generate output: $prismaOutput" -ForegroundColor Yellow
+            Write-Log "Prisma generate may have issues" -Level WARN
+        }
     } catch {
         $error = Get-ErrorSolution "E007"
         Add-Error "E007" $error.Message $error.Solution -Fatal $false
+        Write-Host "  [WARN] Prisma generate error: $_" -ForegroundColor Yellow
     }
     
     # Run migrations
     Write-Log "Running database migrations..." -Level INFO
     
-    if (-not (Test-Path "prisma\dev.db")) {
+    # Check for existing database in various locations
+    $dbExists = (Test-Path "db\custom.db") -or (Test-Path "prisma\dev.db") -or (Test-Path "dev.db")
+    
+    if (-not $dbExists) {
         try {
-            npx prisma migrate dev --name init 2>&1 | Out-Null
-            Write-Log "Database migrations completed" -Level SUCCESS
-        } catch {
-            # Try push if migrate fails
-            Write-Log "Migration failed, trying db push..." -Level WARN
-            try {
-                npx prisma db push 2>&1 | Out-Null
+            Write-Host "  Running: npx prisma db push" -ForegroundColor Gray
+            $pushResult = npx prisma db push 2>&1
+            if ($LASTEXITCODE -eq 0) {
                 Write-Log "Database schema pushed successfully" -Level SUCCESS
-            } catch {
-                $error = Get-ErrorSolution "E006"
-                Add-Error "E006" $error.Message $error.Solution -Fatal $false
+                Write-Host "  [OK] Database schema created" -ForegroundColor Green
+            } else {
+                Write-Host "  Database push output: $pushResult" -ForegroundColor Yellow
+                # Try migrate as fallback
+                npx prisma migrate dev --name init 2>&1 | Out-Null
+                Write-Log "Database migrations completed" -Level SUCCESS
             }
+        } catch {
+            $error = Get-ErrorSolution "E006"
+            Add-Error "E006" $error.Message $error.Solution -Fatal $false
         }
     } else {
         Write-Log "Database already exists, skipping migration" -Level INFO
+        Write-Host "  [OK] Database file found" -ForegroundColor Green
     }
     
     Show-Progress "Database configured" 1
@@ -870,7 +884,7 @@ function Invoke-EnvironmentSetup {
     # Verify DATABASE_URL
     $envContent = Get-Content $envFile -Raw -ErrorAction SilentlyContinue
     if ($envContent -notmatch "DATABASE_URL") {
-        Add-Content -Path $envFile -Value 'DATABASE_URL="file:./dev.db"'
+        Add-Content -Path $envFile -Value 'DATABASE_URL="file:./db/custom.db"'
         Write-Log "Added DATABASE_URL to .env" -Level INFO
     }
     
@@ -1006,6 +1020,12 @@ function Invoke-BuildCheck {
     Show-Progress "Verifying build..."
     
     Write-Log "Running build verification" -Level INFO
+    
+    # Ensure Prisma client is generated before build
+    Write-Host "  Ensuring Prisma client is ready..." -ForegroundColor Gray
+    try {
+        npx prisma generate 2>&1 | Out-Null
+    } catch {}
     
     try {
         $buildCmd = if ($Script:PackageManager -eq "bun") {
