@@ -5,6 +5,37 @@ All notable changes to the Political News Spectrum app will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.1] - 2026-03-23
+
+### Fixed
+
+#### Windows Compatibility
+- **FIXED**: Prisma CLI now works on Windows with `DATABASE_URL` set automatically
+- **FIXED**: `db:push`, `db:migrate`, `db:reset` scripts now use cross-env for cross-platform support
+- **FIXED**: Cross-origin access blocked error - added `allowedDevOrigins` config
+
+### Changed
+
+- **Package Scripts**
+  - Added `postinstall` script to auto-generate Prisma client
+  - All db scripts now use `cross-env` for Windows/Linux/Mac compatibility
+  - DATABASE_URL is set inline for Prisma CLI commands
+
+- **Next.js Config**
+  - Added `allowedDevOrigins` for network access in development
+  - Allows access from local network IPs (e.g., 10.30.1.26)
+
+### Technical Details
+
+| Component | Change |
+|-----------|--------|
+| package.json | Added cross-env to db scripts |
+| package.json | Added postinstall script |
+| next.config.ts | Added allowedDevOrigins |
+| Dependencies | Added cross-env dev dependency |
+
+---
+
 ## [3.3.0] - 2026-03-23
 
 ### New Features
@@ -188,6 +219,8 @@ If you weren't using AI:
 
 | Version | Name | Key Feature |
 |---------|------|-------------|
+| 3.3.1 | Windows Fix | Cross-platform Prisma scripts |
+| 3.3.0 | Archive & Content Reader | Article fetching & archiving |
 | 3.2.0 | Database Auto-Config | Automatic database setup |
 | 3.1.0 | Independent Operation | No external AI dependency |
 | 3.0.2 | Windows Compatibility Fix | Prisma v6 pin |
@@ -197,5 +230,5 @@ If you weren't using AI:
 
 ---
 
-[3.2.0]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.1.0...v3.2.0
-[3.1.0]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.0.2...v3.1.0
+[3.3.1]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.3.0...v3.3.1
+[3.3.0]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.2.0...v3.3.0

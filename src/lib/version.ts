@@ -1,9 +1,9 @@
 // App Version Configuration
 export const APP_VERSION = {
-  version: '3.3.0',
-  versionName: 'Archive & Content Reader',
+  version: '3.3.1',
+  versionName: 'Windows Fix',
   releaseDate: '2026-03-23',
-  buildNumber: 330,
+  buildNumber: 331,
 };
 
 export type UpdateStatus = 'up-to-date' | 'update-available' | 'unknown';
@@ -25,6 +25,17 @@ export function getVersionInfo(): VersionInfo {
     versionName: APP_VERSION.versionName,
     releaseDate: APP_VERSION.releaseDate,
     changelog: [
+      {
+        version: '3.3.1',
+        date: '2026-03-23',
+        changes: [
+          'FIX: Prisma CLI now works on Windows with DATABASE_URL set automatically',
+          'FIX: db:push, db:migrate, db:reset scripts now use cross-env for cross-platform support',
+          'FIX: Cross-origin access blocked error - added allowedDevOrigins config',
+          'ADDED: postinstall script to auto-generate Prisma client',
+          'ADDED: cross-env dev dependency for Windows/Linux/Mac compatibility',
+        ],
+      },
       {
         version: '3.2.0',
         date: '2026-03-23',
