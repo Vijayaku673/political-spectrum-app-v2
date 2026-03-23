@@ -31,7 +31,7 @@ param(
 # ============================================
 $Config = @{
     AppName = "Political Spectrum App"
-    Version = "3.0.1"
+    Version = "3.0.2"
     NodeMinVersion = "18.0.0"
     BunMinVersion = "1.0.0"
     RequiredPorts = @(3000, 5555)
@@ -258,7 +258,7 @@ $ErrorCodes = @{
     }
     E007 = @{
         Message = "Prisma client generation failed"
-        Solution = "Try: npx prisma generate"
+        Solution = "Try: npx prisma@6 generate"
     }
     E008 = @{
         Message = "Environment file creation failed"
@@ -286,7 +286,7 @@ $ErrorCodes = @{
     }
     E014 = @{
         Message = "Prisma CLI not found"
-        Solution = "Run: bun add prisma @prisma/client"
+        Solution = "Run: bun add prisma@6.11.1 @prisma/client@6.11.1"
     }
     E015 = @{
         Message = "SQLite database locked"
@@ -766,14 +766,14 @@ function Invoke-DatabaseSetup {
     
     Write-Log "Starting database setup" -Level INFO
     
-    # Ensure prisma is available
+    # Ensure prisma is available (PINNED TO v6.x - v7 has breaking changes!)
     if (-not (Test-Path "node_modules\.bin\prisma") -and -not (Test-CommandExists "prisma")) {
-        Add-Warning "W005" "Prisma CLI not found" "Installing Prisma..."
+        Add-Warning "W005" "Prisma CLI not found" "Installing Prisma v6..."
         
         if ($Script:PackageManager -eq "bun") {
-            bun add prisma @prisma/client
+            bun add prisma@6.11.1 @prisma/client@6.11.1
         } else {
-            npm install prisma @prisma/client
+            npm install prisma@6.11.1 @prisma/client@6.11.1
         }
     }
     
