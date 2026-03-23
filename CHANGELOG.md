@@ -5,6 +5,57 @@ All notable changes to the Political News Spectrum app will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-03-24
+
+### New Features
+
+#### Enhanced UI & Visual Design
+- **Enhanced Headline Cards** with source dates, publication info, and bias indicators
+  - Source avatar with bias-colored initials
+  - Publication time with relative formatting (e.g., "3 hours ago")
+  - Country/location indicator
+  - Reliability badge (Very High/High/Medium/Low/Very Low)
+  - Bias indicator bar with gradient and position marker
+
+- **Coverage Details Sidebar**
+  - Total article count badge
+  - Left/Center/Right breakdown with counts and percentages
+  - Last Updated timestamp
+  - Visual bias distribution bar (blue-gray-red segments)
+  - News source logo grid with bias-colored avatars
+
+- **Similar Topics Section**
+  - Collapsible panel with expand/collapse functionality
+  - Topic chips with icons (US Politics, Democratic Party, Donald Trump, etc.)
+  - Article counts displayed for each topic
+  - Clickable to filter articles
+
+- **Other News Sources Section**
+  - Scrollable list of related articles from different outlets
+  - Shows outlet name, headline, bias score, and publication time
+  - Clickable items to analyze specific articles
+
+### Changed
+
+- **Visual Design Improvements**
+  - Full dark mode support with proper contrast
+  - Color-coded border indicators on cards
+  - Gradient bias bars throughout (blue = left, gray = center, red = right)
+  - Modern hover effects and shadows
+  - Responsive grid layout (1 column mobile → 4 columns desktop)
+
+### Technical Details
+
+| Component | Change |
+|-----------|--------|
+| Headline Cards | Enhanced with bias indicators, dates, reliability badges |
+| Coverage Sidebar | NEW - Shows coverage statistics and source distribution |
+| Similar Topics | NEW - Expandable topic filtering section |
+| Other Sources | NEW - Related articles from different outlets |
+| Helper Functions | formatTimeAgo, getBiasColor, getReliabilityBadge, getOutletInitials |
+
+---
+
 ## [3.3.1] - 2026-03-23
 
 ### Fixed
@@ -219,6 +270,7 @@ If you weren't using AI:
 
 | Version | Name | Key Feature |
 |---------|------|-------------|
+| 3.4.0 | Enhanced UI & Coverage | New headline cards, coverage sidebar, topics |
 | 3.3.1 | Windows Fix | Cross-platform Prisma scripts |
 | 3.3.0 | Archive & Content Reader | Article fetching & archiving |
 | 3.2.0 | Database Auto-Config | Automatic database setup |
@@ -230,5 +282,5 @@ If you weren't using AI:
 
 ---
 
+[3.4.0]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.3.1...v3.4.0
 [3.3.1]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.3.0...v3.3.1
-[3.3.0]: https://github.com/Shootre21/political-spectrum-app-v2/compare/v3.2.0...v3.3.0

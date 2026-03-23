@@ -16,13 +16,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
-import { 
-  Loader2, 
-  Play, 
-  Pause, 
-  ArrowLeft, 
-  TrendingUp, 
-  Database, 
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Loader2,
+  Play,
+  Pause,
+  ArrowLeft,
+  TrendingUp,
+  Database,
   Search,
   Zap,
   Filter,
@@ -58,9 +59,18 @@ import {
   Bookmark,
   FileText,
   ExternalLink,
-  Lock
+  Lock,
+  ChevronDown,
+  Newspaper,
+  MapPin,
+  Calendar,
+  Clock3,
+  TrendingDown,
+  Minus,
+  ChevronUp
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { OUTLET_DATABASE, getOutletInfo, getOutletBias, getBiasLabel, type OutletInfo } from '@/lib/outlets';
 
 // Types
 interface Headline {
@@ -106,7 +116,7 @@ interface AnalysisResult {
   socialistPerspective: { summary: string; talkingPoints: string[] };
   spectrumScore: number;
   spectrumJustification: string;
-  
+
   // Algorithm-specific fields
   outletBias?: number;
   articleDelta?: number;
@@ -162,6 +172,109 @@ interface VersionInfo {
   buildNumber?: number;
 }
 
+// Similar topics for the enhanced UI
+interface SimilarTopic {
+  name: string;
+  icon: React.ReactNode;
+  count: number;
+  selected?: boolean;
+}
+
+// Other news sources covering same story
+interface OtherNewsSource {
+  outlet: string;
+  headline: string;
+  url: string;
+  biasScore: number;
+  publishedAt: string;
+  reliability: number;
+}
+
+// ==================== HELPER FUNCTIONS ====================
+
+// Format time ago
+const formatTimeAgo = (dateString: string): string => {
+  const now = new Date();
+  const then = new Date(dateString);
+  const diff = Math.floor((now.getTime() - then.getTime()) / 1000);
+
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+  if (diff < 172800) return 'Yesterday';
+  return `${Math.floor(diff / 86400)} days ago`;
+};
+
+// Get bias color class
+const getBiasColor = (score: number): string => {
+  if (score <= -2) return 'bg-blue-500';
+  if (score <= -0.5) return 'bg-blue-300';
+  if (score < 0.5) return 'bg-gray-400';
+  if (score < 2) return 'bg-red-300';
+  return 'bg-red-500';
+};
+
+// Get bias gradient
+const getBiasGradient = (): string => {
+  return 'bg-gradient-to-r from-blue-500 via-gray-300 to-red-500';
+};
+
+// Get bias text color
+const getBiasTextColor = (score: number): string => {
+  if (score <= -2) return 'text-blue-600 dark:text-blue-400';
+  if (score <= -0.5) return 'text-blue-500 dark:text-blue-300';
+  if (score < 0.5) return 'text-gray-600 dark:text-gray-400';
+  if (score < 2) return 'text-red-500 dark:text-red-300';
+  return 'text-red-600 dark:text-red-400';
+};
+
+// Get reliability badge color
+const getReliabilityBadge = (score: number): { color: string; label: string } => {
+  if (score >= 90) return { color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400', label: 'Very High' };
+  if (score >= 75) return { color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'High' };
+  if (score >= 60) return { color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', label: 'Medium' };
+  if (score >= 40) return { color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400', label: 'Low' };
+  return { color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', label: 'Very Low' };
+};
+
+// Get outlet initials for avatar fallback
+const getOutletInitials = (source: string): string => {
+  const words = source.split(/[\s-]+/);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return source.substring(0, 2).toUpperCase();
+};
+
+// Calculate coverage stats
+interface CoverageStats {
+  total: number;
+  left: number;
+  center: number;
+  right: number;
+  lastUpdated: string;
+}
+
+const calculateCoverageStats = (headlines: HeadlinesData | null): CoverageStats => {
+  if (!headlines) {
+    return { total: 0, left: 0, center: 0, right: 0, lastUpdated: 'Just now' };
+  }
+
+  const left = headlines.leftHeadlines.length;
+  const center = headlines.centerHeadlines.length;
+  const right = headlines.rightHeadlines.length;
+
+  return {
+    total: left + center + right,
+    left,
+    center,
+    right,
+    lastUpdated: 'Just now'
+  };
+};
+
+// ==================== MAIN COMPONENT ====================
+
 export default function PoliticalSpectrumApp() {
   // State
   const [view, setView] = useState<'headlines' | 'analysis' | 'history' | 'settings' | 'analytics' | 'authors'>('headlines');
@@ -171,13 +284,13 @@ export default function PoliticalSpectrumApp() {
   const [historicArticles, setHistoricArticles] = useState<HistoricArticle[]>([]);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [version, setVersion] = useState<VersionInfo | null>(null);
-  
+
   // Loading states
   const [headlinesLoading, setHeadlinesLoading] = useState(true);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
-  
+
   // Settings form state
   const [settingsForm, setSettingsForm] = useState({
     apiKeys: {
@@ -196,20 +309,20 @@ export default function PoliticalSpectrumApp() {
       refreshInterval: 900000,
     },
   });
-  
+
   // Filters
   const [filters, setFilters] = useState({
     source: '',
     category: '',
     search: '',
   });
-  
+
   // Speech synthesis
   const [isSpeaking, setIsSpeaking] = useState(false);
-  
+
   // Settings dialog
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  
+
   // Article content state
   const [articleContent, setArticleContent] = useState<{
     content: string;
@@ -218,11 +331,32 @@ export default function PoliticalSpectrumApp() {
     loading: boolean;
     error?: string;
   } | null>(null);
-  
+
   // Archive state
   const [archiving, setArchiving] = useState(false);
   const [isArchived, setIsArchived] = useState(false);
-  
+
+  // Topics expanded state
+  const [topicsExpanded, setTopicsExpanded] = useState(false);
+
+  // Selected topic filter
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+
+  // Similar topics data
+  const similarTopics: SimilarTopic[] = [
+    { name: 'US Politics', icon: <Globe className="w-3.5 h-3.5" />, count: 156 },
+    { name: 'Democratic Party', icon: <Users className="w-3.5 h-3.5" />, count: 89 },
+    { name: 'Donald Trump', icon: <User className="w-3.5 h-3.5" />, count: 234 },
+    { name: 'Elections 2024', icon: <TrendingUp className="w-3.5 h-3.5" />, count: 178 },
+    { name: 'Immigration', icon: <MapPin className="w-3.5 h-3.5" />, count: 67 },
+    { name: 'Economy', icon: <BarChart3 className="w-3.5 h-3.5" />, count: 112 },
+    { name: 'Healthcare', icon: <Activity className="w-3.5 h-3.5" />, count: 54 },
+    { name: 'Climate', icon: <Globe className="w-3.5 h-3.5" />, count: 43 },
+  ];
+
+  // Other news sources (simulated for demo)
+  const [otherNewsSources, setOtherNewsSources] = useState<OtherNewsSource[]>([]);
+
   // Analytics state
   const [analyticsData, setAnalyticsData] = useState<{
     totalArticles: number;
@@ -232,7 +366,6 @@ export default function PoliticalSpectrumApp() {
     topSources: { source: string; count: number; avgBias: number }[];
     topicDistribution: { topic: string; count: number }[];
   } | null>(() => ({
-    // Static fallback data
     totalArticles: 120,
     analyzedArticles: 85,
     avgBiasScore: -0.15,
@@ -254,14 +387,13 @@ export default function PoliticalSpectrumApp() {
       { topic: 'Foreign Policy', count: 8 },
     ],
   }));
-  
+
   // Authors state
   const [authorsData, setAuthorsData] = useState<{
     left: { name: string; lean: number; reliability: number; avatar: string }[];
     center: { name: string; lean: number; reliability: number; avatar: string }[];
     right: { name: string; lean: number; reliability: number; avatar: string }[];
   } | null>(() => ({
-    // Static fallback data for authors
     left: [
       { name: 'Rachel Maddow', lean: -2.5, reliability: 72, avatar: 'RM' },
       { name: 'Paul Krugman', lean: -2.2, reliability: 85, avatar: 'PK' },
@@ -286,7 +418,7 @@ export default function PoliticalSpectrumApp() {
       { name: 'David French', lean: 1.2, reliability: 80, avatar: 'DF' },
     ],
   }));
-  
+
   // Test results state
   const [testResults, setTestResults] = useState<Record<string, unknown> | null>(null);
   const [testing, setTesting] = useState(false);
@@ -297,11 +429,11 @@ export default function PoliticalSpectrumApp() {
     fetchTickerHeadlines();
     fetchSettings();
     fetchVersion();
-    
+
     const tickerInterval = setInterval(fetchTickerHeadlines, 15 * 60 * 1000);
     return () => clearInterval(tickerInterval);
   }, []);
-  
+
   // Fetch analytics and authors on demand
   const fetchAnalytics = async () => {
     try {
@@ -314,7 +446,7 @@ export default function PoliticalSpectrumApp() {
       console.error('Error fetching analytics:', error);
     }
   };
-  
+
   const fetchAuthors = async () => {
     try {
       const response = await fetch('/api/analytics?type=authors');
@@ -326,7 +458,7 @@ export default function PoliticalSpectrumApp() {
       console.error('Error fetching authors:', error);
     }
   };
-  
+
   // Run tests
   const runTests = async () => {
     setTesting(true);
@@ -343,7 +475,7 @@ export default function PoliticalSpectrumApp() {
       setTesting(false);
     }
   };
-  
+
   // Fetch analytics when view changes
   useEffect(() => {
     if (view === 'analytics') {
@@ -361,12 +493,40 @@ export default function PoliticalSpectrumApp() {
       if (!response.ok) throw new Error('Failed to fetch headlines');
       const data = await response.json();
       setHeadlines(data);
+
+      // Generate other news sources based on headlines
+      if (data.leftHeadlines?.length > 0 || data.centerHeadlines?.length > 0 || data.rightHeadlines?.length > 0) {
+        generateOtherNewsSources(data);
+      }
     } catch (error) {
       console.error('Error fetching headlines:', error);
       toast.error('Failed to fetch headlines');
     } finally {
       setHeadlinesLoading(false);
     }
+  };
+
+  // Generate other news sources for a selected article
+  const generateOtherNewsSources = (headlinesData: HeadlinesData) => {
+    const allHeadlines = [
+      ...headlinesData.leftHeadlines,
+      ...headlinesData.centerHeadlines,
+      ...headlinesData.rightHeadlines
+    ];
+
+    const sources: OtherNewsSource[] = allHeadlines.slice(0, 6).map(h => {
+      const outlet = getOutletInfo(h.source.toLowerCase().replace(/\s+/g, '').replace(/[^a-z]/g, '') + '.com');
+      return {
+        outlet: h.source,
+        headline: h.headline,
+        url: h.url,
+        biasScore: outlet?.biasScore || 0,
+        publishedAt: h.publishedAt,
+        reliability: outlet?.reliabilityScore || 70
+      };
+    });
+
+    setOtherNewsSources(sources);
   };
 
   // Fetch ticker headlines
@@ -426,7 +586,7 @@ export default function PoliticalSpectrumApp() {
           publishedAt: headline.publishedAt,
         }),
       });
-      
+
       if (!response.ok) throw new Error('Failed to analyze article');
       const data = await response.json();
       setAnalysis(data);
@@ -454,7 +614,7 @@ export default function PoliticalSpectrumApp() {
           publishedAt: headline.publishedAt,
         }),
       });
-      
+
       if (!response.ok) throw new Error('Failed to analyze article');
       const data = await response.json();
       setAnalysis({ ...data, method: 'ai' });
@@ -477,7 +637,7 @@ export default function PoliticalSpectrumApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsForm),
       });
-      
+
       if (!response.ok) throw new Error('Failed to save settings');
       const data = await response.json();
       setSettings(data);
@@ -516,7 +676,7 @@ export default function PoliticalSpectrumApp() {
       Object.entries(filters).forEach(([key, value]) => {
         if (value) params.append(key, value);
       });
-      
+
       const response = await fetch(`/api/articles?${params.toString()}`);
       if (!response.ok) throw new Error('Failed to fetch articles');
       const data = await response.json();
@@ -532,13 +692,13 @@ export default function PoliticalSpectrumApp() {
   // Speech synthesis
   const speakAnalysis = () => {
     if (!analysis) return;
-    
+
     if (isSpeaking) {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
       return;
     }
-    
+
     const utterance = new SpeechSynthesisUtterance(
       `Analyzing: ${analysis.article.title}. From ${analysis.article.source}. ` +
       `Bias score: ${analysis.spectrumScore?.toFixed(1) || 0} on scale of minus 10 to plus 10. ` +
@@ -546,7 +706,7 @@ export default function PoliticalSpectrumApp() {
     );
     utterance.rate = 0.9;
     utterance.onend = () => setIsSpeaking(false);
-    
+
     window.speechSynthesis.speak(utterance);
     setIsSpeaking(true);
   };
@@ -564,19 +724,19 @@ export default function PoliticalSpectrumApp() {
   // Fetch article content for reading
   const fetchContent = async () => {
     if (!analysis?.article?.url) return;
-    
+
     setArticleContent({ content: '', title: '', isPaywalled: false, loading: true });
-    
+
     try {
       const response = await fetch('/api/content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: analysis.article.url }),
       });
-      
+
       if (!response.ok) throw new Error('Failed to fetch content');
       const data = await response.json();
-      
+
       setArticleContent({
         content: data.content || '',
         title: data.title || analysis.article.title,
@@ -584,7 +744,7 @@ export default function PoliticalSpectrumApp() {
         loading: false,
         error: data.error,
       });
-      
+
       if (data.isPaywalled) {
         toast.info('This article appears to be paywalled. Limited content available.');
       }
@@ -604,9 +764,9 @@ export default function PoliticalSpectrumApp() {
   // Archive article
   const archiveArticle = async () => {
     if (!analysis) return;
-    
+
     setArchiving(true);
-    
+
     try {
       const response = await fetch('/api/archive', {
         method: 'POST',
@@ -626,9 +786,9 @@ export default function PoliticalSpectrumApp() {
           signals: analysis.signals,
         }),
       });
-      
+
       if (!response.ok) throw new Error('Failed to archive');
-      
+
       setIsArchived(true);
       toast.success('Article archived for later reading!');
     } catch (error) {
@@ -639,14 +799,8 @@ export default function PoliticalSpectrumApp() {
     }
   };
 
-  // Get bias color
-  const getBiasColor = (score: number): string => {
-    if (score <= -3) return 'bg-blue-600';
-    if (score <= -1) return 'bg-blue-400';
-    if (score < 1) return 'bg-gray-400';
-    if (score < 3) return 'bg-red-400';
-    return 'bg-red-600';
-  };
+  // Calculate coverage stats
+  const coverageStats = calculateCoverageStats(headlines);
 
   // Dynamic SEO based on current view
   const getSeoForView = () => {
@@ -672,6 +826,305 @@ export default function PoliticalSpectrumApp() {
 
   const seoConfig = getSeoForView();
 
+  // ==================== RENDER COMPONENTS ====================
+
+  // Enhanced Headline Card Component
+  const EnhancedHeadlineCard = ({ headline, onAnalyze }: { headline: Headline; onAnalyze: (h: Headline) => void }) => {
+    const outlet = getOutletInfo(headline.source.toLowerCase().replace(/\s+/g, '').replace(/[^a-z]/g, '') + '.com') ||
+                   Object.values(OUTLET_DATABASE).find(o => o.name.toLowerCase() === headline.source.toLowerCase());
+    const biasScore = outlet?.biasScore || 0;
+    const reliability = outlet?.reliabilityScore || 70;
+    const reliabilityBadge = getReliabilityBadge(reliability);
+
+    return (
+      <Card className="group hover:shadow-lg transition-all duration-300 cursor-pointer overflow-hidden border-l-4 dark:border-l-2"
+        style={{ borderLeftColor: biasScore <= -2 ? '#3b82f6' : biasScore <= -0.5 ? '#93c5fd' : biasScore < 0.5 ? '#9ca3af' : biasScore < 2 ? '#fca5a5' : '#ef4444' }}
+        onClick={() => onAnalyze(headline)}
+      >
+        <CardContent className="p-4">
+          {/* Header with source and badges */}
+          <div className="flex items-start gap-3 mb-3">
+            <Avatar className="w-10 h-10 rounded-lg shrink-0">
+              <AvatarFallback className={`text-xs font-bold ${getBiasColor(biasScore)} text-white`}>
+                {getOutletInitials(headline.source)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-sm">{headline.source}</span>
+                <Badge className={`text-[10px] px-1.5 py-0 ${reliabilityBadge.color}`}>
+                  {reliabilityBadge.label}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                <Clock3 className="w-3 h-3" />
+                <span>{formatTimeAgo(headline.publishedAt)}</span>
+                <span className="text-muted-foreground/50">•</span>
+                <MapPin className="w-3 h-3" />
+                <span>{outlet?.country || 'US'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Headline */}
+          <h3 className="font-medium text-sm leading-snug line-clamp-2 mb-3 group-hover:text-primary transition-colors">
+            {headline.headline}
+          </h3>
+
+          {/* Bias indicator bar */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className={getBiasTextColor(biasScore)}>
+                {getBiasLabel(biasScore)}
+              </span>
+              <span className="text-muted-foreground">
+                Bias: {biasScore.toFixed(1)}
+              </span>
+            </div>
+            <div className="relative h-2 rounded-full bg-gradient-to-r from-blue-500 via-gray-300 to-red-500 overflow-hidden">
+              <div
+                className="absolute top-0 w-1 h-full bg-black dark:bg-white shadow-md transition-all"
+                style={{ left: `${((biasScore + 3) / 6) * 100}%`, transform: 'translateX(-50%)' }}
+              />
+            </div>
+          </div>
+
+          {/* Hover action */}
+          <div className="flex items-center justify-end mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Badge variant="outline" className="text-xs">
+              <Zap className="w-3 h-3 mr-1" />
+              Click to analyze
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Coverage Details Sidebar Component
+  const CoverageDetailsSidebar = () => {
+    const total = coverageStats.total;
+    const leftPercent = total > 0 ? Math.round((coverageStats.left / total) * 100) : 0;
+    const centerPercent = total > 0 ? Math.round((coverageStats.center / total) * 100) : 0;
+    const rightPercent = total > 0 ? Math.round((coverageStats.right / total) * 100) : 0;
+
+    return (
+      <Card className="sticky top-24">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <PieChart className="w-4 h-4" />
+            Coverage Details
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Total sources badge */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Total News Sources</span>
+            <Badge variant="secondary" className="font-bold">
+              {total} Articles
+            </Badge>
+          </div>
+
+          <Separator />
+
+          {/* Leaning breakdown */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-blue-500" />
+                <span className="text-sm">Leaning Left</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{coverageStats.left}</span>
+                <span className="text-xs text-muted-foreground">({leftPercent}%)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gray-400" />
+                <span className="text-sm">Center</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{coverageStats.center}</span>
+                <span className="text-xs text-muted-foreground">({centerPercent}%)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <span className="text-sm">Leaning Right</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{coverageStats.right}</span>
+                <span className="text-xs text-muted-foreground">({rightPercent}%)</span>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Last updated */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="w-4 h-4" />
+            <span>Last Updated: {coverageStats.lastUpdated}</span>
+          </div>
+
+          {/* Bias distribution bar */}
+          <div className="space-y-2">
+            <span className="text-sm text-muted-foreground">Bias Distribution</span>
+            <div className="flex h-3 rounded-full overflow-hidden">
+              <div className="bg-blue-500 transition-all" style={{ width: `${leftPercent}%` }} />
+              <div className="bg-gray-400 transition-all" style={{ width: `${centerPercent}%` }} />
+              <div className="bg-red-500 transition-all" style={{ width: `${rightPercent}%` }} />
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Left {leftPercent}%</span>
+              <span>Center {centerPercent}%</span>
+              <span>Right {rightPercent}%</span>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* News source logos grid */}
+          <div className="space-y-2">
+            <span className="text-sm text-muted-foreground">Sources</span>
+            <div className="grid grid-cols-4 gap-2">
+              {Object.values(OUTLET_DATABASE).slice(0, 12).map((outlet) => (
+                <Avatar key={outlet.domain} className="w-8 h-8">
+                  <AvatarFallback
+                    className={`text-[10px] font-bold text-white ${getBiasColor(outlet.biasScore)}`}
+                    title={`${outlet.name} - ${getBiasLabel(outlet.biasScore)}`}
+                  >
+                    {getOutletInitials(outlet.name)}
+                  </AvatarFallback>
+                </Avatar>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Similar Topics Section Component
+  const SimilarTopicsSection = () => (
+    <Card>
+      <Collapsible open={topicsExpanded} onOpenChange={setTopicsExpanded}>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Tag className="w-4 h-4" />
+                Similar Topics
+              </CardTitle>
+              {topicsExpanded ? (
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              )}
+            </div>
+            <CardDescription>
+              Related topics you might be interested in
+            </CardDescription>
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="pt-0">
+            <div className="flex flex-wrap gap-2">
+              {similarTopics.map((topic) => (
+                <Badge
+                  key={topic.name}
+                  variant={selectedTopic === topic.name ? 'default' : 'outline'}
+                  className="cursor-pointer hover:bg-primary/10 transition-colors py-1.5 px-3"
+                  onClick={() => {
+                    setSelectedTopic(selectedTopic === topic.name ? null : topic.name);
+                    toast.info(`Filtering by: ${topic.name}`);
+                  }}
+                >
+                  {topic.icon}
+                  <span className="ml-1.5">{topic.name}</span>
+                  <span className="ml-1.5 text-muted-foreground text-[10px]">({topic.count})</span>
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+
+  // Other News Sources Section Component
+  const OtherNewsSourcesSection = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Layers className="w-4 h-4" />
+          Other News Sources
+        </CardTitle>
+        <CardDescription>
+          Other outlets covering similar stories
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        <ScrollArea className="max-h-80">
+          <div className="divide-y">
+            {otherNewsSources.length > 0 ? otherNewsSources.map((source, idx) => {
+              const reliabilityBadge = getReliabilityBadge(source.reliability);
+              return (
+                <div
+                  key={idx}
+                  className="flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors cursor-pointer"
+                  onClick={() => analyzeArticleAlgo({
+                    headline: source.headline,
+                    source: source.outlet,
+                    url: source.url,
+                    emoji: '📰',
+                    publishedAt: source.publishedAt
+                  })}
+                >
+                  <Avatar className="w-8 h-8 shrink-0">
+                    <AvatarFallback className={`text-[10px] font-bold text-white ${getBiasColor(source.biasScore)}`}>
+                      {getOutletInitials(source.outlet)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{source.outlet}</span>
+                      <Badge className={`text-[9px] px-1 py-0 ${reliabilityBadge.color}`}>
+                        {reliabilityBadge.label}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                      {source.headline}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className={`text-xs font-medium ${getBiasTextColor(source.biasScore)}`}>
+                      {getBiasLabel(source.biasScore)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {formatTimeAgo(source.publishedAt)}
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </div>
+              );
+            }) : (
+              <div className="p-4 text-center text-muted-foreground text-sm">
+                No other sources available
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+
+  // ==================== MAIN RENDER ====================
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       {/* Dynamic SEO */}
@@ -680,6 +1133,7 @@ export default function PoliticalSpectrumApp() {
         description={seoConfig.description}
         keywords={seoConfig.keywords}
       />
+
       {/* News Ticker */}
       {tickerHeadlines.length > 0 && (
         <div className="bg-slate-900 text-white py-2 overflow-hidden">
@@ -698,7 +1152,7 @@ export default function PoliticalSpectrumApp() {
           </div>
         </div>
       )}
-      
+
       {/* Header */}
       <header className="border-b bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
@@ -709,10 +1163,10 @@ export default function PoliticalSpectrumApp() {
               </h1>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant="outline" className="text-xs">
-                  v{version?.version || '2.0.0'}
+                  v{version?.version || '3.4.0'}
                 </Badge>
                 <Badge variant="secondary" className="text-xs">
-                  {version?.versionName || 'Algorithm Overhaul'}
+                  {version?.versionName || 'UI Enhancement'}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
                   Algorithm-Based Analysis
@@ -746,7 +1200,597 @@ export default function PoliticalSpectrumApp() {
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        {/* Settings View */}
+        {/* ==================== HEADLINES VIEW ==================== */}
+        {view === 'headlines' && (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Main content area */}
+            <div className="lg:col-span-3 space-y-6">
+              {headlinesLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  <span className="ml-2 text-muted-foreground">Loading headlines...</span>
+                </div>
+              ) : (
+                <>
+                  {/* Left Column */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-blue-500" />
+                      <h2 className="text-lg font-bold text-blue-600 dark:text-blue-400">Left-Leaning Sources</h2>
+                      <Badge variant="outline" className="text-xs">
+                        {headlines?.leftHeadlines?.length || 0} articles
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {headlines?.leftHeadlines?.map((headline, idx) => (
+                        <EnhancedHeadlineCard
+                          key={idx}
+                          headline={headline}
+                          onAnalyze={analyzeArticleAlgo}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Center Column */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-gray-400" />
+                      <h2 className="text-lg font-bold text-gray-600 dark:text-gray-400">Center Sources</h2>
+                      <Badge variant="outline" className="text-xs">
+                        {headlines?.centerHeadlines?.length || 0} articles
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {headlines?.centerHeadlines?.map((headline, idx) => (
+                        <EnhancedHeadlineCard
+                          key={idx}
+                          headline={headline}
+                          onAnalyze={analyzeArticleAlgo}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right Column */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500" />
+                      <h2 className="text-lg font-bold text-red-600 dark:text-red-400">Right-Leaning Sources</h2>
+                      <Badge variant="outline" className="text-xs">
+                        {headlines?.rightHeadlines?.length || 0} articles
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {headlines?.rightHeadlines?.map((headline, idx) => (
+                        <EnhancedHeadlineCard
+                          key={idx}
+                          headline={headline}
+                          onAnalyze={analyzeArticleAlgo}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Similar Topics */}
+                  <SimilarTopicsSection />
+
+                  {/* Other News Sources */}
+                  <OtherNewsSourcesSection />
+                </>
+              )}
+            </div>
+
+            {/* Sidebar */}
+            <div className="lg:col-span-1">
+              <CoverageDetailsSidebar />
+            </div>
+          </div>
+        )}
+
+        {/* ==================== ANALYSIS VIEW ==================== */}
+        {view === 'analysis' && analysis && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <Button variant="ghost" onClick={resetView}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Headlines
+              </Button>
+              <div className="flex items-center gap-2">
+                {settingsForm.preferences.enableSpeechSynthesis && (
+                  <Button variant="outline" size="sm" onClick={speakAnalysis}>
+                    {isSpeaking ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                    {isSpeaking ? 'Stop' : 'Speak'}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={fetchContent}>
+                  <Eye className="w-4 h-4 mr-2" />
+                  Read Article
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={archiveArticle}
+                  disabled={archiving || isArchived}
+                >
+                  {archiving ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : isArchived ? (
+                    <CheckCircle className="w-4 h-4 mr-2 text-green-500" />
+                  ) : (
+                    <Bookmark className="w-4 h-4 mr-2" />
+                  )}
+                  {isArchived ? 'Archived' : 'Archive'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Analysis Content - keep existing functionality */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    Article Analysis
+                  </CardTitle>
+                  <CardDescription>
+                    {analysis.article.source} • {formatTimeAgo(analysis.article.publishedAt)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <h2 className="text-xl font-bold mb-4">{analysis.article.title}</h2>
+
+                  {/* Bias Score Display */}
+                  <div className="mb-6 p-4 bg-muted rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold">Bias Score</span>
+                      <span className={`text-2xl font-bold ${getBiasTextColor(analysis.spectrumScore)}`}>
+                        {analysis.spectrumScore?.toFixed(1) || 0}
+                      </span>
+                    </div>
+                    <div className={`h-3 rounded-full ${getBiasGradient()}`}>
+                      <div
+                        className="relative w-1 h-3 bg-black dark:bg-white shadow-md"
+                        style={{ left: `${((analysis.spectrumScore + 3) / 6) * 100}%`, position: 'relative' }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                      <span>Left (-3)</span>
+                      <span>Center (0)</span>
+                      <span>Right (+3)</span>
+                    </div>
+                  </div>
+
+                  {/* Tags */}
+                  {analysis.tags && analysis.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {analysis.tags.map((tag, i) => (
+                        <Badge key={i} variant="secondary">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Confidence */}
+                  {settingsForm.preferences.showConfidence && analysis.confidence && (
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span>Confidence</span>
+                        <span>{Math.round(analysis.confidence * 100)}%</span>
+                      </div>
+                      <Progress value={analysis.confidence * 100} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Evidence Panel */}
+              {settingsForm.preferences.showEvidence && analysis.evidence && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Evidence</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <h4 className="text-sm font-semibold mb-1">Topics</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {analysis.evidence.topics?.slice(0, 5).map((topic, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {topic}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold mb-1">Framing Terms</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {analysis.evidence.framingTerms?.slice(0, 5).map((item, i) => (
+                          <Badge
+                            key={i}
+                            variant="outline"
+                            className={`text-xs ${item.leaning === 'left' ? 'border-blue-500 text-blue-600' : 'border-red-500 text-red-600'}`}
+                          >
+                            {item.term}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Perspectives */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="border-l-4 border-l-blue-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-blue-600 dark:text-blue-400">Left Perspective</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {analysis.leftWingPerspective?.summary || 'No analysis available'}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-gray-400">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-gray-600 dark:text-gray-400">Center Perspective</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {analysis.spectrumJustification || 'No analysis available'}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-red-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-red-600 dark:text-red-400">Right Perspective</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {analysis.rightWingPerspective?.summary || 'No analysis available'}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Article Content */}
+            {articleContent && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5" />
+                    {articleContent.title}
+                  </CardTitle>
+                  {articleContent.isPaywalled && (
+                    <Badge variant="destructive" className="w-fit">
+                      <Lock className="w-3 h-3 mr-1" />
+                      Paywalled
+                    </Badge>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  {articleContent.loading ? (
+                    <div className="flex items-center justify-center py-10">
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    </div>
+                  ) : articleContent.error ? (
+                    <Alert variant="destructive">
+                      <AlertCircle className="w-4 h-4" />
+                      <AlertDescription>{articleContent.error}</AlertDescription>
+                    </Alert>
+                  ) : (
+                    <ScrollArea className="max-h-96">
+                      <div className="prose prose-sm dark:prose-invert">
+                        {articleContent.content}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* ==================== HISTORY VIEW ==================== */}
+        {view === 'history' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Archived Articles</h2>
+              <Button variant="ghost" onClick={() => setView('headlines')}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Filters</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Input
+                    placeholder="Filter by source..."
+                    value={filters.source}
+                    onChange={(e) => setFilters(prev => ({ ...prev, source: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Filter by category..."
+                    value={filters.category}
+                    onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
+                  />
+                  <Button onClick={fetchHistoricArticles}>
+                    <Search className="w-4 h-4 mr-2" />
+                    Search
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {historyLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-6 h-6 animate-spin" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {historicArticles.map((article) => (
+                  <Card key={article.id} className="hover:shadow-lg transition-shadow cursor-pointer"
+                    onClick={() => analyzeArticleAlgo({
+                      headline: article.title,
+                      source: article.source,
+                      url: article.url,
+                      emoji: '📰',
+                      publishedAt: article.publishedAt
+                    })}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium line-clamp-2">{article.title}</p>
+                          <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                            <span>{article.source}</span>
+                            <span>•</span>
+                            <span>{formatTimeAgo(article.publishedAt)}</span>
+                          </div>
+                        </div>
+                        {article.spectrumScore && (
+                          <Badge className={getBiasColor(article.spectrumScore) + ' text-white'}>
+                            {article.spectrumScore.toFixed(1)}
+                          </Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ==================== ANALYTICS VIEW ==================== */}
+        {view === 'analytics' && analyticsData && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Analytics Dashboard</h2>
+              <Button variant="ghost" onClick={() => setView('headlines')}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Total Articles</CardDescription>
+                  <CardTitle className="text-3xl">{analyticsData.totalArticles}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <TrendingUp className="w-8 h-8 text-muted-foreground" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Analyzed</CardDescription>
+                  <CardTitle className="text-3xl">{analyticsData.analyzedArticles}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PieChart className="w-8 h-8 text-muted-foreground" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Avg Bias Score</CardDescription>
+                  <CardTitle className={`text-3xl ${getBiasTextColor(analyticsData.avgBiasScore)}`}>
+                    {analyticsData.avgBiasScore.toFixed(2)}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Activity className="w-8 h-8 text-muted-foreground" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Distribution</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex h-4 rounded-full overflow-hidden">
+                    <div className="bg-blue-500" style={{ width: `${(analyticsData.biasDistribution.left / analyticsData.totalArticles) * 100}%` }} />
+                    <div className="bg-gray-400" style={{ width: `${(analyticsData.biasDistribution.center / analyticsData.totalArticles) * 100}%` }} />
+                    <div className="bg-red-500" style={{ width: `${(analyticsData.biasDistribution.right / analyticsData.totalArticles) * 100}%` }} />
+                  </div>
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-blue-500">{analyticsData.biasDistribution.left}</span>
+                    <span className="text-gray-500">{analyticsData.biasDistribution.center}</span>
+                    <span className="text-red-500">{analyticsData.biasDistribution.right}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Sources</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {analyticsData.topSources.map((source, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Avatar className="w-6 h-6">
+                            <AvatarFallback className={`text-[10px] ${getBiasColor(source.avgBias)} text-white`}>
+                              {getOutletInitials(source.source)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="text-sm">{source.source}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">{source.count} articles</span>
+                          <Badge className={`${getBiasColor(source.avgBias)} text-white text-xs`}>
+                            {source.avgBias.toFixed(1)}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Topic Distribution</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {analyticsData.topicDistribution.map((topic, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <span className="text-sm">{topic.topic}</span>
+                        <div className="flex items-center gap-2">
+                          <Progress value={(topic.count / analyticsData.totalArticles) * 100} className="w-24 h-2" />
+                          <span className="text-sm text-muted-foreground">{topic.count}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== AUTHORS VIEW ==================== */}
+        {view === 'authors' && authorsData && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Author Political Leanings</h2>
+              <Button variant="ghost" onClick={() => setView('headlines')}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Left Authors */}
+              <Card className="border-t-4 border-t-blue-500">
+                <CardHeader>
+                  <CardTitle className="text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                    <TrendingDown className="w-5 h-5" />
+                    Left-Leaning Authors
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {authorsData.left.map((author, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarFallback className="bg-blue-100 text-blue-600">
+                          {author.avatar}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{author.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs ${getBiasTextColor(author.lean)}`}>
+                            {getBiasLabel(author.lean)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Reliability: {author.reliability}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              {/* Center Authors */}
+              <Card className="border-t-4 border-t-gray-400">
+                <CardHeader>
+                  <CardTitle className="text-gray-600 dark:text-gray-400 flex items-center gap-2">
+                    <Minus className="w-5 h-5" />
+                    Center Authors
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {authorsData.center.map((author, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarFallback className="bg-gray-100 text-gray-600">
+                          {author.avatar}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{author.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs ${getBiasTextColor(author.lean)}`}>
+                            {getBiasLabel(author.lean)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Reliability: {author.reliability}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              {/* Right Authors */}
+              <Card className="border-t-4 border-t-red-500">
+                <CardHeader>
+                  <CardTitle className="text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Right-Leaning Authors
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {authorsData.right.map((author, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarFallback className="bg-red-100 text-red-600">
+                          {author.avatar}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{author.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs ${getBiasTextColor(author.lean)}`}>
+                            {getBiasLabel(author.lean)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Reliability: {author.reliability}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== SETTINGS VIEW ==================== */}
         {view === 'settings' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -765,7 +1809,7 @@ export default function PoliticalSpectrumApp() {
                 <TabsTrigger value="theme">Theme</TabsTrigger>
                 <TabsTrigger value="about">About</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="apikeys" className="space-y-4 mt-4">
                 <Card>
                   <CardHeader>
@@ -784,7 +1828,7 @@ export default function PoliticalSpectrumApp() {
                         API keys are stored in your local settings file and .env.local. They are masked in the UI for security.
                       </AlertDescription>
                     </Alert>
-                    
+
                     {[
                       { key: 'openai', label: 'OpenAI / ChatGPT', placeholder: 'sk-...' },
                       { key: 'anthropic', label: 'Anthropic / Claude', placeholder: 'sk-ant-...' },
@@ -826,7 +1870,7 @@ export default function PoliticalSpectrumApp() {
                         </div>
                       </div>
                     ))}
-                    
+
                     <Button onClick={saveSettings} disabled={settingsLoading}>
                       {settingsLoading ? (
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -838,7 +1882,7 @@ export default function PoliticalSpectrumApp() {
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="preferences" className="space-y-4 mt-4">
                 <Card>
                   <CardHeader>
@@ -851,7 +1895,7 @@ export default function PoliticalSpectrumApp() {
                         <p className="text-sm text-muted-foreground">Choose between algorithm or AI-powered analysis</p>
                       </div>
                       <select
-                        className="border rounded px-3 py-2"
+                        className="border rounded px-3 py-2 bg-background"
                         value={settingsForm.preferences.defaultAnalysisMethod}
                         onChange={(e) => setSettingsForm(prev => ({
                           ...prev,
@@ -862,9 +1906,9 @@ export default function PoliticalSpectrumApp() {
                         <option value="ai">AI-Powered</option>
                       </select>
                     </div>
-                    
+
                     <Separator />
-                    
+
                     <div className="flex items-center justify-between">
                       <div>
                         <Label>Show Evidence Panel</Label>
@@ -878,7 +1922,7 @@ export default function PoliticalSpectrumApp() {
                         }))}
                       />
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <div>
                         <Label>Show Confidence Score</Label>
@@ -892,7 +1936,7 @@ export default function PoliticalSpectrumApp() {
                         }))}
                       />
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <div>
                         <Label>Speech Synthesis</Label>
@@ -906,7 +1950,7 @@ export default function PoliticalSpectrumApp() {
                         }))}
                       />
                     </div>
-                    
+
                     <Button onClick={saveSettings} disabled={settingsLoading}>
                       {settingsLoading ? (
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -918,7 +1962,7 @@ export default function PoliticalSpectrumApp() {
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="environment" className="space-y-4 mt-4">
                 <Card>
                   <CardHeader>
@@ -931,92 +1975,20 @@ export default function PoliticalSpectrumApp() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <Alert>
-                      <Info className="w-4 h-4" />
-                      <AlertDescription>
-                        Environment variables are loaded from <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">.env</code> and <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">.env.local</code> files.
-                      </AlertDescription>
-                    </Alert>
-                    
-                    <div className="space-y-3">
-                      <h4 className="font-semibold text-sm">Database Configuration</h4>
-                      <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg font-mono text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">DATABASE_URL:</span>
-                          <span className="text-green-600 dark:text-green-400">&quot;file:./dev.db&quot;</span>
-                        </div>
-                        <div className="flex justify-between mt-1">
-                          <span className="text-muted-foreground">Provider:</span>
-                          <span>SQLite (Prisma ORM)</span>
-                        </div>
-                        <div className="flex justify-between mt-1">
-                          <span className="text-muted-foreground">Location:</span>
-                          <span>./prisma/dev.db</span>
-                        </div>
+                    <div className="bg-muted p-3 rounded-lg font-mono text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">DATABASE_URL:</span>
+                        <span className="text-green-600 dark:text-green-400">&quot;file:./dev.db&quot;</span>
+                      </div>
+                      <div className="flex justify-between mt-1">
+                        <span className="text-muted-foreground">Provider:</span>
+                        <span>SQLite (Prisma ORM)</span>
                       </div>
                     </div>
-                    
-                    <Separator />
-                    
-                    <div className="space-y-3">
-                      <h4 className="font-semibold text-sm">AI Provider Status</h4>
-                      <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg space-y-2">
-                        {[
-                          { key: 'OPENAI_API_KEY', name: 'OpenAI', prefix: 'sk-' },
-                          { key: 'ANTHROPIC_API_KEY', name: 'Anthropic', prefix: 'sk-ant-' },
-                          { key: 'GEMINI_API_KEY', name: 'Google Gemini', prefix: 'AIza' },
-                          { key: 'GROK_API_KEY', name: 'xAI Grok', prefix: 'xai-' },
-                          { key: 'KIMI_API_KEY', name: 'Kimi', prefix: 'sk-' },
-                          { key: 'ZAI_API_KEY', name: 'Z.ai', prefix: '' },
-                        ].map(({ key, name, prefix }) => {
-                          const isSet = settings?.hasApiKeys?.[key.toLowerCase().replace('_API_KEY', '')] || false;
-                          const isDemo = settingsForm.apiKeys[key.toLowerCase().replace('_API_KEY', '')]?.includes('demo') || false;
-                          return (
-                            <div key={key} className="flex justify-between items-center text-sm">
-                              <span className="font-mono text-xs">{key}</span>
-                              <div className="flex items-center gap-2">
-                                {isDemo ? (
-                                  <Badge variant="destructive" className="text-xs">Demo Key</Badge>
-                                ) : isSet ? (
-                                  <Badge variant="default" className="text-xs bg-green-600">Configured</Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-xs">Not Set</Badge>
-                                )}
-                                {prefix && <span className="text-xs text-muted-foreground">({prefix}...)</span>}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    
-                    <Separator />
-                    
-                    <div className="space-y-3">
-                      <h4 className="font-semibold text-sm">Site Configuration</h4>
-                      <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg font-mono text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">NEXT_PUBLIC_SITE_URL:</span>
-                          <span>http://localhost:3000</span>
-                        </div>
-                        <div className="flex justify-between mt-1">
-                          <span className="text-muted-foreground">NODE_ENV:</span>
-                          <span className="text-blue-600 dark:text-blue-400">development</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <Alert className="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
-                      <AlertCircle className="w-4 h-4 text-yellow-600" />
-                      <AlertDescription className="text-yellow-800 dark:text-yellow-200">
-                        <strong>Security Note:</strong> Never commit your .env files to version control. 
-                        API keys should be stored securely and rotated periodically.
-                      </AlertDescription>
-                    </Alert>
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="theme" className="space-y-4 mt-4">
                 <Card>
                   <CardHeader>
@@ -1028,1404 +2000,113 @@ export default function PoliticalSpectrumApp() {
                       Customize the appearance of the application
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-6">
-                    {/* Theme Selection */}
-                    <div className="space-y-3">
-                      <Label>Color Theme</Label>
-                      <div className="grid grid-cols-3 gap-3">
-                        <button
-                          onClick={() => document.documentElement.classList.remove('dark')}
-                          className="p-4 rounded-lg border-2 border-slate-200 hover:border-blue-500 transition-colors bg-white text-slate-900 flex flex-col items-center gap-2"
-                        >
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500" />
-                          <span className="text-sm font-medium">Light</span>
-                        </button>
-                        <button
-                          onClick={() => document.documentElement.classList.add('dark')}
-                          className="p-4 rounded-lg border-2 border-slate-700 bg-slate-900 text-white hover:border-blue-500 transition-colors flex flex-col items-center gap-2"
-                        >
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-400" />
-                          <span className="text-sm font-medium">Dark</span>
-                        </button>
-                        <button
-                          className="p-4 rounded-lg border-2 border-slate-300 dark:border-slate-600 hover:border-blue-500 transition-colors bg-gradient-to-br from-white to-slate-900 text-slate-600 dark:text-slate-400 flex flex-col items-center gap-2"
-                        >
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600" />
-                          <span className="text-sm font-medium">System</span>
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <Separator />
-                    
-                    {/* Color Accents */}
-                    <div className="space-y-3">
-                      <Label>Accent Color</Label>
-                      <div className="flex gap-3">
-                        {[
-                          { color: 'blue', bg: 'bg-blue-500' },
-                          { color: 'purple', bg: 'bg-purple-500' },
-                          { color: 'green', bg: 'bg-green-500' },
-                          { color: 'orange', bg: 'bg-orange-500' },
-                          { color: 'red', bg: 'bg-red-500' },
-                          { color: 'pink', bg: 'bg-pink-500' },
-                        ].map(({ color, bg }) => (
-                          <button
-                            key={color}
-                            className={`w-8 h-8 rounded-full ${bg} hover:scale-110 transition-transform ${color === 'blue' ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`}
-                            title={color}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <Separator />
-                    
-                    {/* Font Size */}
-                    <div className="space-y-3">
-                      <Label>Font Size</Label>
-                      <div className="flex gap-3">
-                        <Button variant="outline" size="sm">Small</Button>
-                        <Button variant="default" size="sm">Medium</Button>
-                        <Button variant="outline" size="sm">Large</Button>
-                      </div>
-                    </div>
-                    
-                    <Separator />
-                    
-                    {/* Preview */}
-                    <div className="space-y-3">
-                      <Label>Preview</Label>
-                      <div className="border rounded-lg p-4 bg-slate-50 dark:bg-slate-800">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Badge>Default</Badge>
-                          <Badge variant="secondary">Secondary</Badge>
-                          <Badge variant="destructive">Alert</Badge>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button size="sm">Primary</Button>
-                          <Button variant="outline" size="sm">Outline</Button>
-                          <Button variant="ghost" size="sm">Ghost</Button>
-                        </div>
-                      </div>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-3 gap-3">
+                      <button
+                        onClick={() => document.documentElement.classList.remove('dark')}
+                        className="p-4 rounded-lg border-2 hover:border-primary transition-colors bg-white text-foreground flex flex-col items-center gap-2"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500" />
+                        <span className="text-sm font-medium">Light</span>
+                      </button>
+                      <button
+                        onClick={() => document.documentElement.classList.add('dark')}
+                        className="p-4 rounded-lg border-2 hover:border-primary transition-colors bg-slate-900 text-white flex flex-col items-center gap-2"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-400" />
+                        <span className="text-sm font-medium">Dark</span>
+                      </button>
+                      <button
+                        className="p-4 rounded-lg border-2 hover:border-primary transition-colors bg-gradient-to-b from-white to-slate-900 flex flex-col items-center gap-2"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 via-gray-400 to-purple-500" />
+                        <span className="text-sm font-medium">System</span>
+                      </button>
                     </div>
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="about" className="space-y-4 mt-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle>About Political News Spectrum</CardTitle>
+                    <CardTitle>About Political Spectrum App</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold">Version {version?.version || '2.0.0'}</h4>
-                      <p className="text-sm text-muted-foreground">{version?.versionName || 'Algorithm Overhaul'}</p>
-                      <p className="text-xs text-muted-foreground">Released: {version?.releaseDate || '2025-01-18'}</p>
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-blue-500 via-purple-500 to-red-500 flex items-center justify-center">
+                        <Zap className="w-8 h-8 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">Political News Spectrum</h3>
+                        <p className="text-muted-foreground">Version {version?.version || '3.4.0'}</p>
+                        <Badge variant="secondary">{version?.versionName || 'UI Enhancement'}</Badge>
+                      </div>
                     </div>
-                    
                     <Separator />
-                    
-                    <div>
-                      <h4 className="font-semibold">Analysis Method</h4>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        This application uses a 3-layer scoring pipeline rather than relying on simple keyword classification.
-                        Each article inherits a baseline perspective from its publishing outlet. The system then evaluates 
-                        the article&apos;s framing, language, and sourcing to calculate a deviation from that baseline.
-                      </p>
-                    </div>
-                    
-                    <Alert>
-                      <Info className="w-4 h-4" />
-                      <AlertDescription>
-                        <strong>Signals Analyzed:</strong>
-                        <ul className="list-disc list-inside mt-2 text-sm">
-                          <li>Emotional or sensational language</li>
-                          <li>Source diversity and balance</li>
-                          <li>Narrative framing patterns</li>
-                          <li>Topic-specific terminology usage</li>
-                        </ul>
-                      </AlertDescription>
-                    </Alert>
-                    
-                    <div>
-                      <h4 className="font-semibold">Changelog</h4>
-                      <ul className="list-disc list-inside mt-2 text-sm text-muted-foreground">
-                        <li>v2.0.0 - Algorithm-based 3-layer scoring pipeline</li>
-                        <li>v1.1.0 - Round-robin AI provider selection</li>
-                        <li>v1.0.0 - Initial release</li>
-                      </ul>
-                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      A comprehensive media bias analysis tool that uses AI and algorithmic analysis to detect political
+                      leanings in news articles from major outlets. Featuring real-time headlines, bias scoring, and
+                      perspective analysis.
+                    </p>
                   </CardContent>
                 </Card>
               </TabsContent>
             </Tabs>
           </div>
         )}
-
-        {/* Analysis View */}
-        {view === 'analysis' && analysis && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <Button variant="ghost" onClick={resetView}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Headlines
-              </Button>
-              <div className="flex items-center gap-2 flex-wrap">
-                {analysis.method === 'algorithm' ? (
-                  <Badge className="bg-purple-100 text-purple-800">
-                    <BarChart3 className="w-3 h-3 mr-1" />
-                    Algorithm Analysis
-                  </Badge>
-                ) : (
-                  <Badge className="bg-blue-100 text-blue-800">
-                    <Sparkles className="w-3 h-3 mr-1" />
-                    AI Analysis: {analysis.provider}
-                  </Badge>
-                )}
-                {analysis.confidence && (
-                  <Badge variant="outline">
-                    {Math.round(analysis.confidence * 100)}% Confidence
-                  </Badge>
-                )}
-                {analysis.cached && (
-                  <Badge variant="outline">From Archive</Badge>
-                )}
-                {settings?.preferences?.enableSpeechSynthesis && (
-                  <Button variant="outline" size="sm" onClick={speakAnalysis}>
-                    {isSpeaking ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Topic Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-xl">{analysis.article.title}</CardTitle>
-                <CardDescription className="flex items-center gap-4 mt-2 flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <Building2 className="w-4 h-4" />
-                    {analysis.article.source}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-4 h-4" />
-                    {new Date(analysis.article.publishedAt).toLocaleDateString()}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Globe className="w-4 h-4" />
-                    {analysis.category}
-                  </span>
-                </CardDescription>
-              </CardHeader>
-            </Card>
-
-            {/* Outlet Info (Algorithm only) */}
-            {analysis.method === 'algorithm' && analysis.outlet && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Outlet Information</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Name:</span>
-                      <p className="font-medium">{analysis.outlet.name}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Baseline Bias:</span>
-                      <p className="font-medium">{analysis.outletBias?.toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Reliability:</span>
-                      <p className="font-medium">{analysis.outlet.reliabilityScore}%</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Article Delta:</span>
-                      <p className="font-medium">
-                        {analysis.articleDelta && analysis.articleDelta > 0 ? '+' : ''}
-                        {analysis.articleDelta?.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Spectrum Score */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Political Spectrum Score</CardTitle>
-                <CardDescription>
-                  Scale: Far Left (Communism) ↔ Far Right (Fascism)
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Main spectrum bar */}
-                <div className="relative h-8 rounded-full bg-gradient-to-r from-red-600 via-blue-400 via-30% via-yellow-300 via-60% to-red-700 overflow-hidden border border-slate-300 dark:border-slate-600">
-                  <div
-                    className="absolute top-0 w-1 h-full bg-black shadow-lg transform -translate-x-1/2 z-10"
-                    style={{ left: `${((analysis.spectrumScore + 10) / 20) * 100}%` }}
-                  />
-                  {/* Tick marks */}
-                  {[0, 25, 50, 75, 100].map((pos) => (
-                    <div
-                      key={pos}
-                      className="absolute top-0 w-px h-2 bg-black/30"
-                      style={{ left: `${pos}%` }}
-                    />
-                  ))}
-                </div>
-                
-                {/* Scale labels with ideology markers */}
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span className="text-red-600 font-medium">Communism</span>
-                  <span>Far Left</span>
-                  <span>Center-Left</span>
-                  <span className="font-medium">Center</span>
-                  <span>Center-Right</span>
-                  <span>Far Right</span>
-                  <span className="text-red-800 font-medium">Fascism</span>
-                </div>
-                
-                {/* Numerical scale */}
-                <div className="flex justify-between text-sm text-muted-foreground font-mono">
-                  <span>-10</span>
-                  <span>-5</span>
-                  <span>0</span>
-                  <span>+5</span>
-                  <span>+10</span>
-                </div>
-                
-                {/* Score display */}
-                <div className="flex items-center justify-center gap-4 py-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                  <span className="text-sm text-muted-foreground">Score:</span>
-                  <span className={`text-3xl font-bold ${
-                    analysis.spectrumScore <= -7 ? 'text-red-600' :
-                    analysis.spectrumScore <= -3 ? 'text-blue-600' :
-                    analysis.spectrumScore <= 3 ? 'text-gray-600' :
-                    analysis.spectrumScore <= 7 ? 'text-orange-600' :
-                    'text-red-800'
-                  }`}>
-                    {analysis.spectrumScore.toFixed(1)}
-                  </span>
-                  <Badge variant={
-                    analysis.spectrumScore <= -7 ? 'destructive' :
-                    analysis.spectrumScore <= -3 ? 'default' :
-                    analysis.spectrumScore <= 3 ? 'secondary' :
-                    analysis.spectrumScore <= 7 ? 'outline' :
-                    'destructive'
-                  }>
-                    {analysis.spectrumScore <= -7 ? 'Far Left' :
-                     analysis.spectrumScore <= -3 ? 'Left-Leaning' :
-                     analysis.spectrumScore <= 3 ? 'Centrist' :
-                     analysis.spectrumScore <= 7 ? 'Right-Leaning' :
-                     'Far Right'}
-                  </Badge>
-                </div>
-                
-                {/* Ideology spectrum visualization */}
-                <div className="border rounded-lg p-4 bg-slate-50 dark:bg-slate-900">
-                  <div className="text-xs text-center text-muted-foreground mb-2">
-                    Political Ideology Spectrum
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="text-center">
-                      <div className="text-red-600 font-bold">☭</div>
-                      <div>Communism</div>
-                      <div className="text-muted-foreground">(-10 to -8)</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-600 font-bold">⚖️</div>
-                      <div>Socialism</div>
-                      <div className="text-muted-foreground">(-8 to -4)</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-400 font-bold">🤝</div>
-                      <div>Liberal</div>
-                      <div className="text-muted-foreground">(-4 to 0)</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-gray-500 font-bold">🏛️</div>
-                      <div>Moderate</div>
-                      <div className="text-muted-foreground">(0)</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-orange-500 font-bold">🦅</div>
-                      <div>Conservative</div>
-                      <div className="text-muted-foreground">(0 to +4)</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-orange-700 font-bold">👑</div>
-                      <div>Nationalist</div>
-                      <div className="text-muted-foreground">(+4 to +8)</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-red-800 font-bold"> fasces</div>
-                      <div>Fascism</div>
-                      <div className="text-muted-foreground">(+8 to +10)</div>
-                    </div>
-                  </div>
-                </div>
-                
-                <p className="text-sm text-muted-foreground bg-slate-100 dark:bg-slate-800 p-3 rounded-lg">
-                  {analysis.spectrumJustification}
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* Tags (Algorithm only) */}
-            {analysis.method === 'algorithm' && analysis.tags && analysis.tags.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Tag className="w-4 h-4" />
-                    Analysis Tags
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {analysis.tags.map((tag, index) => (
-                      <Badge key={index} variant="secondary">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Signals Panel (Algorithm only) */}
-            {analysis.method === 'algorithm' && analysis.signals && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4" />
-                    Signal Analysis
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {[
-                    { label: 'Headline Emotionality', value: analysis.signals.headlineEmotionality, color: 'purple' },
-                    { label: 'Source Diversity', value: analysis.signals.sourceDiversity, color: 'green' },
-                    { label: 'Partisan Rhetoric', value: analysis.signals.partisanRhetoric, color: 'red' },
-                    { label: 'Authoritarian Rhetoric', value: analysis.signals.authoritarianRhetoric, color: 'orange' },
-                    { label: 'Socialist Rhetoric', value: analysis.signals.socialistRhetoric, color: 'blue' },
-                  ].map((signal) => (
-                    <div key={signal.label} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">{signal.label}</span>
-                        <span className="font-semibold">{signal.value.toFixed(1)}/10</span>
-                      </div>
-                      <Progress 
-                        value={signal.value * 10} 
-                        max={10}
-                        className="h-2"
-                        // @ts-expect-error - possibly undefined
-                        // style={{'& > div': { backgroundColor: 'var(--progress-bg)' }}}
-                      />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Action Buttons */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Layers className="w-4 h-4" />
-                  Actions
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={archiveArticle}
-                    disabled={archiving || isArchived}
-                    variant={isArchived ? "outline" : "default"}
-                    className="flex-1"
-                  >
-                    {archiving ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : isArchived ? (
-                      <CheckCircle className="w-4 h-4 mr-2 text-green-600" />
-                    ) : (
-                      <Archive className="w-4 h-4 mr-2" />
-                    )}
-                    {isArchived ? 'Archived' : 'Archive'}
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    onClick={fetchContent}
-                    disabled={articleContent?.loading}
-                    className="flex-1"
-                  >
-                    {articleContent?.loading ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <FileText className="w-4 h-4 mr-2" />
-                    )}
-                    Read Article
-                  </Button>
-                  
-                  <Button
-                    variant="ghost"
-                    as="a"
-                    href={analysis.article.url}
-                    target="_blank"
-                    className="flex-1"
-                  >
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Original
-                  </Button>
-                </div>
-                
-                {articleContent && !articleContent.loading && (
-                  <div className="mt-4">
-                    {articleContent.isPaywalled && (
-                      <Alert className="mb-2">
-                        <Lock className="w-4 h-4" />
-                        <AlertDescription>
-                          This article may be behind a paywall. Limited content is available.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    {articleContent.error ? (
-                      <Alert variant="destructive">
-                        <AlertCircle className="w-4 h-4" />
-                        <AlertDescription>
-                          {articleContent.error}
-                        </AlertDescription>
-                      </Alert>
-                    ) : articleContent.content ? (
-                      <ScrollArea className="h-64 w-full rounded-lg border p-3 bg-slate-50 dark:bg-slate-900">
-                        <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                          {articleContent.content}
-                        </p>
-                      </ScrollArea>
-                    ) : null}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Evidence Panel (Algorithm only) */}
-            {analysis.method === 'algorithm' && analysis.evidence && settings?.preferences?.showEvidence && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Eye className="w-4 h-4" />
-                    Evidence Panel
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {analysis.evidence.headlineTerms.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground mb-1">Emotional Headline Terms</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {analysis.evidence.headlineTerms.map((term, i) => (
-                          <Badge key={i} variant="outline" className="text-xs">{term}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {analysis.evidence.framingTerms.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground mb-1">Framing Terms</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {analysis.evidence.framingTerms.map((item, i) => (
-                          <Badge 
-                            key={i} 
-                            variant="outline" 
-                            className={`text-xs ${item.leaning === 'left' ? 'border-blue-500 text-blue-700' : 'border-red-500 text-red-700'}`}
-                          >
-                            {item.term} ({item.leaning})
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {analysis.evidence.partisanMarkers.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground mb-1">Partisan Markers</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {analysis.evidence.partisanMarkers.map((marker, i) => (
-                          <Badge key={i} variant="destructive" className="text-xs">{marker}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {analysis.evidence.authoritarianMarkers.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground mb-1">Authoritarian Markers</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {analysis.evidence.authoritarianMarkers.map((marker, i) => (
-                          <Badge key={i} variant="outline" className="text-xs border-orange-500 text-orange-700">{marker}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground mb-1">Sources</h4>
-                    <p className="text-sm">
-                      {analysis.evidence.sources.count} sources cited
-                      {analysis.evidence.sources.types.length > 0 && ` (${analysis.evidence.sources.types.join(', ')})`}
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground mb-1">Opposing Viewpoint</h4>
-                    <Badge variant={analysis.evidence.opposingViews ? 'default' : 'secondary'}>
-                      {analysis.evidence.opposingViews ? 'Present' : 'Not Found'}
-                    </Badge>
-                  </div>
-                  
-                  {analysis.evidence.topics.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground mb-1">Topics Detected</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {analysis.evidence.topics.map((topic, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs">{topic}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Perspectives */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Left Wing */}
-              <Card className="border-t-4 border-t-blue-500">
-                <CardHeader>
-                  <CardTitle className="text-lg text-blue-700 dark:text-blue-400">
-                    Left-Wing Framing
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm">{analysis.leftWingPerspective.summary}</p>
-                  {analysis.leftWingPerspective.talkingPoints.length > 0 && (
-                    <ul className="space-y-1">
-                      {analysis.leftWingPerspective.talkingPoints.slice(0, 5).map((point, index) => (
-                        <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <ChevronRight className="w-4 h-4 mt-0.5 text-blue-500 flex-shrink-0" />
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Right Wing */}
-              <Card className="border-t-4 border-t-red-500">
-                <CardHeader>
-                  <CardTitle className="text-lg text-red-700 dark:text-red-400">
-                    Right-Wing Framing
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm">{analysis.rightWingPerspective.summary}</p>
-                  {analysis.rightWingPerspective.talkingPoints.length > 0 && (
-                    <ul className="space-y-1">
-                      {analysis.rightWingPerspective.talkingPoints.slice(0, 5).map((point, index) => (
-                        <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <ChevronRight className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Socialist */}
-              <Card className="border-t-4 border-t-purple-500">
-                <CardHeader>
-                  <CardTitle className="text-lg text-purple-700 dark:text-purple-400">
-                    Socialist Framing
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm">{analysis.socialistPerspective.summary}</p>
-                  {analysis.socialistPerspective.talkingPoints.length > 0 && (
-                    <ul className="space-y-1">
-                      {analysis.socialistPerspective.talkingPoints.slice(0, 5).map((point, index) => (
-                        <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <ChevronRight className="w-4 h-4 mt-0.5 text-purple-500 flex-shrink-0" />
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* AI Analysis Button */}
-            {analysis.method === 'algorithm' && (
-              <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
-                <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-semibold">Want more detailed analysis?</h4>
-                      <p className="text-sm text-muted-foreground">Use AI to get deeper insights and talking points.</p>
-                    </div>
-                    <Button 
-                      onClick={() => analyzeArticleAI({
-                        headline: analysis.article.title,
-                        source: analysis.article.source,
-                        url: analysis.article.url,
-                        emoji: '📰',
-                        publishedAt: analysis.article.publishedAt,
-                      })}
-                      disabled={analysisLoading}
-                    >
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Analyze with AI
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Article Link */}
-            <Card>
-              <CardContent className="py-4">
-                <a
-                  href={analysis.article.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline flex items-center gap-2"
-                >
-                  <Globe className="w-4 h-4" />
-                  Read Original Article
-                </a>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* History View */}
-        {view === 'history' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">Historic Articles Archive</h2>
-              <Button variant="ghost" onClick={() => setView('headlines')}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Headlines
-              </Button>
-            </div>
-
-            {/* Filters */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Filter className="w-5 h-5" />
-                  Query Filters
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label htmlFor="source">Source</Label>
-                    <Input
-                      id="source"
-                      placeholder="e.g., CNN"
-                      value={filters.source}
-                      onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="category">Category</Label>
-                    <Input
-                      id="category"
-                      placeholder="e.g., Politics"
-                      value={filters.category}
-                      onChange={(e) => setFilters({ ...filters, category: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="search">Search</Label>
-                    <Input
-                      id="search"
-                      placeholder="Search articles..."
-                      value={filters.search}
-                      onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <Button onClick={fetchHistoricArticles} disabled={historyLoading}>
-                  {historyLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Search className="w-4 h-4 mr-2" />
-                  )}
-                  Search Articles
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Results */}
-            <div className="space-y-4">
-              {historyLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : historicArticles.length > 0 ? (
-                historicArticles.map((article) => (
-                  <Card 
-                    key={article.id} 
-                    className="hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => analyzeArticleAlgo({
-                      headline: article.title,
-                      source: article.source,
-                      url: article.url,
-                      emoji: '📰',
-                      publishedAt: article.publishedAt,
-                    })}
-                  >
-                    <CardContent className="py-4">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h3 className="font-semibold">{article.title}</h3>
-                          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                            <span>{article.source}</span>
-                            <span>{new Date(article.publishedAt).toLocaleDateString()}</span>
-                            {article.category && <Badge variant="outline">{article.category}</Badge>}
-                            {article.aiProvider && (
-                              <Badge variant="secondary">{article.aiProvider}</Badge>
-                            )}
-                          </div>
-                        </div>
-                        {article.spectrumScore !== null && (
-                          <div className="text-right">
-                            <div className="text-sm font-medium">
-                              {article.spectrumScore.toFixed(1)}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              ) : (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    <Database className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>No articles found. Try adjusting your filters.</p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Analytics View */}
-        {view === 'analytics' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold flex items-center gap-2">
-                <BarChart3 className="w-6 h-6" />
-                Analytics Dashboard
-              </h2>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={runTests} disabled={testing}>
-                  {testing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TestTube className="w-4 h-4 mr-2" />}
-                  Run Tests
-                </Button>
-                <Button variant="ghost" onClick={() => setView('headlines')}>
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back
-                </Button>
-              </div>
-            </div>
-
-            {analyticsData ? (
-              <>
-                {/* Overview Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Card>
-                    <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{analyticsData.totalArticles}</div>
-                      <p className="text-xs text-muted-foreground">Total Articles</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{analyticsData.analyzedArticles}</div>
-                      <p className="text-xs text-muted-foreground">Analyzed</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{analyticsData.avgBiasScore?.toFixed(2) || '0.00'}</div>
-                      <p className="text-xs text-muted-foreground">Avg Bias Score</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{Math.max(analyticsData.biasDistribution.left, analyticsData.biasDistribution.center, analyticsData.biasDistribution.right)}</div>
-                      <p className="text-xs text-muted-foreground">Largest Group</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Bias Distribution */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <PieChart className="w-5 h-5" />
-                        Bias Distribution
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-blue-600 font-medium">Left-Leaning</span>
-                            <span>{analyticsData.biasDistribution.left}</span>
-                          </div>
-                          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-blue-500 rounded-full"
-                              style={{ width: `${(analyticsData.biasDistribution.left / (analyticsData.analyzedArticles || 1)) * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-gray-600 font-medium">Center</span>
-                            <span>{analyticsData.biasDistribution.center}</span>
-                          </div>
-                          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gray-500 rounded-full"
-                              style={{ width: `${(analyticsData.biasDistribution.center / (analyticsData.analyzedArticles || 1)) * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-red-600 font-medium">Right-Leaning</span>
-                            <span>{analyticsData.biasDistribution.right}</span>
-                          </div>
-                          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-red-500 rounded-full"
-                              style={{ width: `${(analyticsData.biasDistribution.right / (analyticsData.analyzedArticles || 1)) * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <Building2 className="w-5 h-5" />
-                        Top Sources
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {analyticsData.topSources.slice(0, 6).map((source, i) => (
-                          <div key={i} className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{source.source}</span>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs">
-                                {source.count} articles
-                              </Badge>
-                              <div 
-                                className={`w-3 h-3 rounded-full ${source.avgBias < -0.5 ? 'bg-blue-500' : source.avgBias > 0.5 ? 'bg-red-500' : 'bg-gray-500'}`}
-                                title={`Avg bias: ${source.avgBias.toFixed(2)}`}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Topic Distribution */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Layers className="w-5 h-5" />
-                      Topic Distribution
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-2">
-                      {analyticsData.topicDistribution.map((topic, i) => (
-                        <Badge key={i} variant="secondary" className="px-3 py-1">
-                          {topic.topic}: {topic.count}
-                        </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Test Results */}
-                {testResults && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <TestTube className="w-5 h-5" />
-                        System Test Results
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        {Object.entries(testResults.tests as Record<string, { status: string }>).map(([name, result]) => (
-                          <div key={name} className="flex items-center justify-between py-2 border-b last:border-0">
-                            <span className="text-sm font-medium capitalize">{name}</span>
-                            <Badge variant={result.status === 'success' ? 'default' : 'destructive'}>
-                              {result.status === 'success' ? <CheckCircle className="w-3 h-3 mr-1" /> : <AlertCircle className="w-3 h-3 mr-1" />}
-                              {result.status}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-4 pt-4 border-t">
-                        <Badge variant="outline" className="bg-green-50 text-green-700">
-                          {testResults.overall?.passed || 0}/{testResults.overall?.totalTests || 0} Tests Passed
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </>
-            ) : (
-              <div className="flex justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Authors View */}
-        {view === 'authors' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold flex items-center gap-2">
-                <Users className="w-6 h-6" />
-                Author Political Leanings
-              </h2>
-              <Button variant="ghost" onClick={() => setView('headlines')}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left-Leaning Authors */}
-              <Card className="border-t-4 border-t-blue-500">
-                <CardHeader>
-                  <CardTitle className="text-lg text-blue-700 dark:text-blue-400 flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-blue-500" />
-                    Left-Leaning Journalists
-                  </CardTitle>
-                  <CardDescription>Authors with left-leaning perspective</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[400px] pr-4">
-                    <div className="space-y-3">
-                      {authorsData?.left?.map((author, i) => (
-                        <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
-                          <Avatar className="w-10 h-10">
-                            <AvatarFallback className="bg-blue-100 text-blue-700 text-xs">
-                              {author.avatar || author.name.split(' ').map(n => n[0]).join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{author.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Lean: {author.lean.toFixed(1)} | Reliability: {author.reliability}%
-                            </p>
-                          </div>
-                          <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-blue-500 rounded-full"
-                              style={{ width: `${Math.abs(author.lean) / 3 * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-
-              {/* Center Authors */}
-              <Card className="border-t-4 border-t-gray-500">
-                <CardHeader>
-                  <CardTitle className="text-lg text-gray-700 dark:text-gray-400 flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-gray-500" />
-                    Center/Balanced Journalists
-                  </CardTitle>
-                  <CardDescription>Authors with neutral perspective</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[400px] pr-4">
-                    <div className="space-y-3">
-                      {authorsData?.center?.map((author, i) => (
-                        <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
-                          <Avatar className="w-10 h-10">
-                            <AvatarFallback className="bg-gray-100 text-gray-700 text-xs">
-                              {author.avatar || author.name.split(' ').map(n => n[0]).join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{author.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Lean: {author.lean.toFixed(1)} | Reliability: {author.reliability}%
-                            </p>
-                          </div>
-                          <Badge variant="outline" className="text-xs">Center</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-
-              {/* Right-Leaning Authors */}
-              <Card className="border-t-4 border-t-red-500">
-                <CardHeader>
-                  <CardTitle className="text-lg text-red-700 dark:text-red-400 flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-red-500" />
-                    Right-Leaning Journalists
-                  </CardTitle>
-                  <CardDescription>Authors with right-leaning perspective</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[400px] pr-4">
-                    <div className="space-y-3">
-                      {authorsData?.right?.map((author, i) => (
-                        <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
-                          <Avatar className="w-10 h-10">
-                            <AvatarFallback className="bg-red-100 text-red-700 text-xs">
-                              {author.avatar || author.name.split(' ').map(n => n[0]).join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{author.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Lean: +{Math.abs(author.lean).toFixed(1)} | Reliability: {author.reliability}%
-                            </p>
-                          </div>
-                          <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-red-500 rounded-full"
-                              style={{ width: `${Math.abs(author.lean) / 3 * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Author Legend */}
-            <Card>
-              <CardContent className="py-4">
-                <div className="flex items-center gap-6 flex-wrap text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded bg-blue-500"></div>
-                    <span>Lean Score: -3 (Far Left)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded bg-gray-500"></div>
-                    <span>Lean Score: 0 (Center)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded bg-red-500"></div>
-                    <span>Lean Score: +3 (Far Right)</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Headlines View */}
-        {view === 'headlines' && (
-          <>
-            {headlinesLoading ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-                <p className="text-muted-foreground">Fetching latest headlines...</p>
-              </div>
-            ) : headlines ? (
-              <div className="space-y-8">
-                {/* Latest Headlines */}
-                <div>
-                  <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <TrendingUp className="w-6 h-6" />
-                    Latest Developments
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {[...headlines.leftHeadlines, ...headlines.rightHeadlines, ...headlines.centerHeadlines]
-                      .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
-                      .slice(0, 4)
-                      .map((headline, index) => (
-                        <Card
-                          key={index}
-                          className="cursor-pointer hover:shadow-lg transition-all border-l-4 border-l-primary"
-                          onClick={() => analyzeArticleAlgo(headline)}
-                        >
-                          <CardContent className="py-4">
-                            <div className="flex gap-3">
-                              <span className="text-2xl">{headline.emoji}</span>
-                              <div className="flex-1">
-                                <h3 className="font-semibold">{headline.headline}</h3>
-                                <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-                                  <span className="font-medium">{headline.source}</span>
-                                  <span>•</span>
-                                  <span>{new Date(headline.publishedAt).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                  </div>
-                </div>
-
-                {/* Headlines by Leaning */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Left Leaning */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 text-blue-700 dark:text-blue-400 border-b-2 border-blue-500 pb-2">
-                      Left-Leaning Sources
-                    </h3>
-                    <div className="space-y-3">
-                      {headlines.leftHeadlines.map((headline, index) => (
-                        <Card
-                          key={index}
-                          className="cursor-pointer hover:shadow-md transition-all"
-                          onClick={() => analyzeArticleAlgo(headline)}
-                        >
-                          <CardContent className="py-3">
-                            <div className="flex gap-2">
-                              <span className="text-xl">{headline.emoji}</span>
-                              <div className="flex-1">
-                                <p className="font-medium text-sm">{headline.headline}</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {headline.source} • {new Date(headline.publishedAt).toLocaleDateString()}
-                                </p>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Center */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 text-gray-700 dark:text-gray-400 border-b-2 border-gray-500 pb-2">
-                      Center / Mainstream
-                    </h3>
-                    <div className="space-y-3">
-                      {headlines.centerHeadlines.map((headline, index) => (
-                        <Card
-                          key={index}
-                          className="cursor-pointer hover:shadow-md transition-all"
-                          onClick={() => analyzeArticleAlgo(headline)}
-                        >
-                          <CardContent className="py-3">
-                            <div className="flex gap-2">
-                              <span className="text-xl">{headline.emoji}</span>
-                              <div className="flex-1">
-                                <p className="font-medium text-sm">{headline.headline}</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {headline.source} • {new Date(headline.publishedAt).toLocaleDateString()}
-                                </p>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Right Leaning */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 text-red-700 dark:text-red-400 border-b-2 border-red-500 pb-2">
-                      Right-Leaning Sources
-                    </h3>
-                    <div className="space-y-3">
-                      {headlines.rightHeadlines.map((headline, index) => (
-                        <Card
-                          key={index}
-                          className="cursor-pointer hover:shadow-md transition-all"
-                          onClick={() => analyzeArticleAlgo(headline)}
-                        >
-                          <CardContent className="py-3">
-                            <div className="flex gap-2">
-                              <span className="text-xl">{headline.emoji}</span>
-                              <div className="flex-1">
-                                <p className="font-medium text-sm">{headline.headline}</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {headline.source} • {new Date(headline.publishedAt).toLocaleDateString()}
-                                </p>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">Failed to load headlines. Please try refreshing.</p>
-                  <Button className="mt-4" onClick={fetchHeadlines}>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Retry
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-          </>
-        )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t mt-auto py-4 bg-white/80 dark:bg-slate-900/80">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>Political News Spectrum v{version?.version || '2.0.0'} • Algorithm-Based 3-Layer Scoring Pipeline</p>
-          <p className="mt-1">Click any headline to analyze with algorithm, or use AI for deeper insights.</p>
-        </div>
-      </footer>
 
       {/* Settings Dialog */}
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Settings
-            </DialogTitle>
+            <DialogTitle>Quick Settings</DialogTitle>
             <DialogDescription>
-              Configure API keys and analysis preferences.
+              Configure your preferences and API keys
             </DialogDescription>
           </DialogHeader>
-          
-          <Tabs defaultValue="apikeys">
-            <TabsList className="w-full">
-              <TabsTrigger value="apikeys" className="flex-1">API Keys</TabsTrigger>
-              <TabsTrigger value="preferences" className="flex-1">Preferences</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="apikeys" className="space-y-4 mt-4">
-              <Alert>
-                <Shield className="w-4 h-4" />
-                <AlertDescription>
-                  API keys are stored locally in settings.json and .env.local. Keys are masked in the UI.
-                </AlertDescription>
-              </Alert>
-              
-              {[
-                { key: 'openai', label: 'OpenAI / ChatGPT', placeholder: 'sk-...' },
-                { key: 'anthropic', label: 'Anthropic / Claude', placeholder: 'sk-ant-...' },
-                { key: 'kimi', label: 'Moonshot / Kimi', placeholder: 'Kimi API key' },
-                { key: 'zai', label: 'Z.ai', placeholder: 'Z.ai API key' },
-                { key: 'grok', label: 'xAI / Grok', placeholder: 'Grok API key' },
-                { key: 'gemini', label: 'Google Gemini', placeholder: 'Gemini API key' },
-              ].map(({ key, label, placeholder }) => (
-                <div key={key} className="space-y-1">
-                  <Label htmlFor={`dialog-${key}`}>{label}</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id={`dialog-${key}`}
-                      type="password"
-                      placeholder={placeholder}
-                      value={settingsForm.apiKeys[key as keyof typeof settingsForm.apiKeys]}
-                      onChange={(e) => setSettingsForm(prev => ({
-                        ...prev,
-                        apiKeys: { ...prev.apiKeys, [key]: e.target.value }
-                      }))}
-                    />
-                    {settings?.hasApiKeys?.[key] && (
-                      <Badge variant="outline" className="bg-green-50 text-green-700 shrink-0">
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Set
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </TabsContent>
-            
-            <TabsContent value="preferences" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between">
-                <Label>Default Analysis Method</Label>
-                <select
-                  className="border rounded px-3 py-2"
-                  value={settingsForm.preferences.defaultAnalysisMethod}
-                  onChange={(e) => setSettingsForm(prev => ({
-                    ...prev,
-                    preferences: { ...prev.preferences, defaultAnalysisMethod: e.target.value as 'algorithm' | 'ai' }
-                  }))}
-                >
-                  <option value="algorithm">Algorithm (Default)</option>
-                  <option value="ai">AI-Powered</option>
-                </select>
-              </div>
-              
-              <div className="flex items-center justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
                 <Label>Show Evidence Panel</Label>
-                <Switch
-                  checked={settingsForm.preferences.showEvidence}
-                  onCheckedChange={(checked) => setSettingsForm(prev => ({
-                    ...prev,
-                    preferences: { ...prev.preferences, showEvidence: checked }
-                  }))}
-                />
+                <p className="text-sm text-muted-foreground">Display evidence for bias classification</p>
               </div>
-              
-              <div className="flex items-center justify-between">
+              <Switch
+                checked={settingsForm.preferences.showEvidence}
+                onCheckedChange={(checked) => setSettingsForm(prev => ({
+                  ...prev,
+                  preferences: { ...prev.preferences, showEvidence: checked }
+                }))}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
                 <Label>Show Confidence Score</Label>
-                <Switch
-                  checked={settingsForm.preferences.showConfidence}
-                  onCheckedChange={(checked) => setSettingsForm(prev => ({
-                    ...prev,
-                    preferences: { ...prev.preferences, showConfidence: checked }
-                  }))}
-                />
+                <p className="text-sm text-muted-foreground">Display analysis confidence percentage</p>
               </div>
-              
-              <div className="flex items-center justify-between">
+              <Switch
+                checked={settingsForm.preferences.showConfidence}
+                onCheckedChange={(checked) => setSettingsForm(prev => ({
+                  ...prev,
+                  preferences: { ...prev.preferences, showConfidence: checked }
+                }))}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
                 <Label>Speech Synthesis</Label>
-                <Switch
-                  checked={settingsForm.preferences.enableSpeechSynthesis}
-                  onCheckedChange={(checked) => setSettingsForm(prev => ({
-                    ...prev,
-                    preferences: { ...prev.preferences, enableSpeechSynthesis: checked }
-                  }))}
-                />
+                <p className="text-sm text-muted-foreground">Enable text-to-speech for analysis</p>
               </div>
-            </TabsContent>
-          </Tabs>
-          
+              <Switch
+                checked={settingsForm.preferences.enableSpeechSynthesis}
+                onCheckedChange={(checked) => setSettingsForm(prev => ({
+                  ...prev,
+                  preferences: { ...prev.preferences, enableSpeechSynthesis: checked }
+                }))}
+              />
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSettingsDialogOpen(false)}>
               Cancel
@@ -2436,26 +2117,19 @@ export default function PoliticalSpectrumApp() {
               ) : (
                 <Save className="w-4 h-4 mr-2" />
               )}
-              Save Settings
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Analysis Loading Overlay */}
-      {analysisLoading && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-80">
-            <CardContent className="py-8 text-center">
-              <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-primary" />
-              <p className="font-semibold">Analyzing Article...</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Using 3-layer scoring pipeline
-              </p>
-            </CardContent>
-          </Card>
+      {/* Footer */}
+      <footer className="border-t bg-muted/30 py-6 mt-10">
+        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
+          <p>Political News Spectrum v{version?.version || '3.4.0'} • {version?.versionName || 'UI Enhancement'}</p>
+          <p className="mt-1">Algorithm-based media bias analysis • No AI required for core functionality</p>
         </div>
-      )}
+      </footer>
     </div>
   );
 }

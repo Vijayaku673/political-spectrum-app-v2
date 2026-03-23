@@ -1,50 +1,42 @@
 {
-  "version": "3.1.0",
-  "versionName": "Independent Operation",
-  "releaseDate": "2026-03-23",
-  "buildNumber": 310,
+  "version": "3.4.0",
+  "versionName": "Enhanced UI & Coverage",
+  "releaseDate": "2026-03-24",
+  "buildNumber": 340,
   "github": "https://github.com/Shootre21/political-spectrum-app-v2",
   "changelog": [
     {
-      "version": "3.1.0",
-      "date": "2026-03-23",
+      "version": "3.4.0",
+      "date": "2026-03-24",
       "changes": [
-        "MAJOR: Removed ZAI SDK dependency - app now runs 100% independently",
-        "NEW: Real RSS feed fetching from 15+ news sources (NYT, Fox, NPR, etc.)",
-        "NEW: news-fetcher.ts module for parsing RSS feeds without AI",
-        "CHANGED: Algorithm analysis is now the PRIMARY method (always works)",
-        "CHANGED: AI analysis is now SECONDARY and optional (requires user's own API keys)",
-        "CHANGED: Headlines API now uses RSS feeds instead of AI generation",
-        "IMPROVED: No rate limits - run as much as you want",
-        "IMPROVED: No external dependencies for core functionality",
-        "IMPROVED: Privacy-first - article text never leaves your machine",
-        "REMOVED: ZAI SDK from package.json",
-        "REMOVED: ZAI API key option from settings",
-        "UPDATED: Documentation to reflect independent operation"
+        "NEW: Enhanced headline cards with source dates and publication info",
+        "NEW: Bias indicator color bars showing political leanings visually",
+        "NEW: Coverage Details sidebar with source distribution visualization",
+        "NEW: Similar Topics section with expandable topic chips",
+        "NEW: Other News Sources section showing related coverage from different outlets",
+        "NEW: Title change tracking showing story evolution over time",
+        "IMPROVED: Modernized UI with dark/light theme support",
+        "IMPROVED: Responsive layout with better mobile support",
+        "IMPROVED: Visual bias distribution with gradient bars",
+        "IMPROVED: Article cards now show source reliability scores"
       ]
     },
     {
-      "version": "3.0.2",
+      "version": "3.3.1",
       "date": "2026-03-23",
       "changes": [
-        "FIX: Pinned Prisma to v6.11.1 (v7 has breaking changes)",
-        "FIX: Removed Unix-only 'tee' command from dev script",
-        "FIX: setup.ps1 now installs correct Prisma version",
-        "FIX: Database path corrected to ./db/custom.db",
-        "FIX: Prisma client generation now runs before build",
-        "IMPROVED: Better error messages with version-specific solutions"
+        "FIX: Windows compatibility for Prisma CLI",
+        "FIX: Cross-origin access blocked error",
+        "CHANGED: Added cross-env for cross-platform support"
       ]
     },
     {
-      "version": "3.0.0",
+      "version": "3.3.0",
       "date": "2026-03-23",
       "changes": [
-        "NEW: Interactive management console with real-time commands",
-        "NEW: manage.ps1 - Standalone process manager & diagnostics tool",
-        "NEW: kill.ps1 - Quick process termination script",
-        "NEW: Network info display (Local IP, App URL, Database status)",
-        "NEW: Interactive commands while logs streaming",
-        "NEW: Database status monitoring"
+        "NEW: Article Content Reader with paywall detection",
+        "NEW: Article Archiving functionality",
+        "IMPROVED: Signal Analysis display with progress bars"
       ]
     }
   ]
