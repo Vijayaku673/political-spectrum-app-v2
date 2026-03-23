@@ -1,9 +1,9 @@
 // App Version Configuration
 export const APP_VERSION = {
-  version: '3.0.0',
-  versionName: 'Interactive Management & Network Tools',
+  version: '3.0.2',
+  versionName: 'Windows Compatibility Fix',
   releaseDate: '2026-03-23',
-  buildNumber: 300,
+  buildNumber: 302,
 };
 
 export type UpdateStatus = 'up-to-date' | 'update-available' | 'unknown';
@@ -25,6 +25,18 @@ export function getVersionInfo(): VersionInfo {
     versionName: APP_VERSION.versionName,
     releaseDate: APP_VERSION.releaseDate,
     changelog: [
+      {
+        version: '3.0.2',
+        date: '2026-03-23',
+        changes: [
+          'FIX: Pinned Prisma to v6.11.1 (v7 has breaking changes)',
+          'FIX: Removed Unix-only "tee" command from dev script',
+          'FIX: setup.ps1 now installs correct Prisma version',
+          'FIX: Database path corrected to ./db/custom.db',
+          'FIX: Prisma client generation now runs before build',
+          'IMPROVED: Better error messages with version-specific solutions',
+        ],
+      },
       {
         version: '3.0.0',
         date: '2026-03-23',

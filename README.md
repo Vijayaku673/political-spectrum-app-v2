@@ -2,14 +2,14 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.0.2-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)
 
 **A multi-perspective news analysis platform using algorithm-based bias detection with optional AI-powered deep analysis.**
 
-[Features](#features) • [Installation](#installation) • [Configuration](#configuration) • [API Reference](#api-reference) • [FAQ](#faq)
+[Features](#features) • [Installation](#installation) • [Roadmap](#roadmap) • [FAQ](#faq) • [Troubleshooting](#troubleshooting)
 
 </div>
 
@@ -29,6 +29,7 @@
 - [Algorithm Details](#algorithm-details)
 - [Outlet Database](#outlet-database)
 - [Author Database](#author-database)
+- [Roadmap](#roadmap)
 - [FAQ](#faq)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -127,9 +128,10 @@ cd political-spectrum-app-v2
 
 **What the setup script does:**
 - ✅ Checks prerequisites (Node.js, Bun/npm, Git)
-- ✅ Installs all dependencies
+- ✅ Installs all dependencies (with correct Prisma v6)
 - ✅ Creates and configures the database
 - ✅ Sets up environment variables
+- ✅ Generates Prisma client
 - ✅ Runs build verification
 - ✅ Generates detailed logs
 
@@ -683,6 +685,62 @@ The system includes 35+ news outlets with bias and reliability scores:
 
 ---
 
+## Roadmap
+
+### Version 3.x (Current)
+
+| Version | Status | Features |
+|---------|--------|----------|
+| 3.0.2 | ✅ Released | Windows compatibility fix, Prisma v6 pin |
+| 3.0.0 | ✅ Released | Interactive management console, network tools |
+
+### Version 3.1 (Planned)
+
+- [ ] **Enhanced Analytics**
+  - Historical bias trends over time
+  - Source comparison charts
+  - Topic heatmap visualization
+- [ ] **Export Features**
+  - Export articles to CSV/JSON
+  - Generate PDF reports
+  - Share analysis via link
+- [ ] **Performance**
+  - Optimize database queries
+  - Add caching layer
+  - Reduce bundle size
+
+### Version 3.2 (Planned)
+
+- [ ] **Multi-language Support**
+  - Spanish, French, German translations
+  - Localized bias lexicons
+  - Region-specific outlets
+- [ ] **API Improvements**
+  - RESTful API documentation
+  - Rate limiting
+  - API key management
+- [ ] **Docker Support**
+  - Official Docker image
+  - Docker Compose setup
+  - Kubernetes manifests
+
+### Version 4.0 (Future)
+
+- [ ] **User Accounts**
+  - Save favorite sources
+  - Custom bias profiles
+  - Reading history
+- [ ] **Browser Extension**
+  - Chrome/Firefox extension
+  - Analyze articles while browsing
+  - Quick bias overlay
+- [ ] **Mobile App**
+  - React Native app
+  - Push notifications
+  - Offline support
+
+---
+
 ## FAQ
 
 ### General Questions
@@ -775,6 +833,86 @@ A: For SQLite, simply copy the `db/custom.db` file. For PostgreSQL, use `pg_dump
 
 ```bash
 pg_dump political_spectrum > backup.sql
+```
+
+### Windows-Specific Questions
+
+**Q: Why do I get "tee is not recognized" error?**
+
+A: This was fixed in v3.0.2. The `tee` command is Unix-only and has been removed from the dev script. Update to the latest version:
+
+```powershell
+git pull
+npm install
+npm run dev
+```
+
+**Q: Why do I get Prisma schema validation error (P1012)?**
+
+A: This happens when Prisma v7 is installed instead of v6. Prisma v7 has breaking changes. Fix:
+
+```powershell
+# Remove node_modules and reinstall
+Remove-Item -Recurse -Force node_modules
+Remove-Item package-lock.json
+npm install
+
+# Generate Prisma client
+npx prisma generate
+```
+
+The package.json now pins Prisma to v6.11.1 to prevent this issue.
+
+**Q: I downloaded the ZIP from GitHub. Why doesn't auto-update work?**
+
+A: Auto-update requires a git repository. The ZIP download doesn't include the `.git` folder. Either:
+
+1. Clone with git instead:
+```powershell
+git clone https://github.com/Shootre21/political-spectrum-app-v2.git
+```
+
+2. Or initialize git in your existing folder:
+```powershell
+git init
+git remote add origin https://github.com/Shootre21/political-spectrum-app-v2.git
+git fetch
+git checkout master
+```
+
+**Q: Why does setup.ps1 show syntax errors?**
+
+A: Make sure you're running the latest version. Some PowerShell syntax was incompatible with Windows PowerShell 5.1. Run:
+
+```powershell
+git pull
+.\setup.ps1
+```
+
+**Q: Headlines API returns 500 error on Windows?**
+
+A: This is usually due to missing Prisma client. Run:
+
+```powershell
+npx prisma generate
+npx prisma db push
+```
+
+Then restart the server with `npm run dev`.
+
+**Q: How do I kill all Node/Bun processes on Windows?**
+
+A: Use the included kill script:
+
+```powershell
+.\kill.ps1          # With confirmation
+.\kill.ps1 -Force   # Without confirmation
+```
+
+Or manually:
+```powershell
+taskkill /F /IM node.exe /T
+taskkill /F /IM bun.exe /T
 ```
 
 ---

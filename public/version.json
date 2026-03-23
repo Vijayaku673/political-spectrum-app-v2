@@ -1,7 +1,33 @@
 {
-  "version": "3.0.0",
-  "versionName": "Interactive Management & Network Tools",
+  "version": "3.0.2",
+  "versionName": "Windows Compatibility Fix",
   "releaseDate": "2026-03-23",
-  "buildNumber": 300,
-  "github": "https://github.com/Shootre21/political-spectrum-app-v2"
+  "buildNumber": 302,
+  "github": "https://github.com/Shootre21/political-spectrum-app-v2",
+  "changelog": [
+    {
+      "version": "3.0.2",
+      "date": "2026-03-23",
+      "changes": [
+        "FIX: Pinned Prisma to v6.11.1 (v7 has breaking changes)",
+        "FIX: Removed Unix-only 'tee' command from dev script",
+        "FIX: setup.ps1 now installs correct Prisma version",
+        "FIX: Database path corrected to ./db/custom.db",
+        "FIX: Prisma client generation now runs before build",
+        "IMPROVED: Better error messages with version-specific solutions"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "date": "2026-03-23",
+      "changes": [
+        "NEW: Interactive management console with real-time commands",
+        "NEW: manage.ps1 - Standalone process manager & diagnostics tool",
+        "NEW: kill.ps1 - Quick process termination script",
+        "NEW: Network info display (Local IP, App URL, Database status)",
+        "NEW: Interactive commands while logs streaming",
+        "NEW: Database status monitoring"
+      ]
+    }
+  ]
 }
