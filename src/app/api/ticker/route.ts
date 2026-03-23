@@ -1,51 +1,50 @@
 import { NextResponse } from 'next/server';
-import { generateJSON } from '@/lib/ai-provider';
+import { fetchHeadlinesFromRSS } from '@/lib/news-fetcher';
 
-interface TickerHeadline {
-  headline: string;
-  source: string;
-  url: string;
-}
-
-interface TickerResponse {
-  headlines: TickerHeadline[];
-}
+/**
+ * Ticker API - NO AI REQUIRED
+ * 
+ * Fetches breaking news headlines from RSS feeds for the news ticker.
+ * Uses the same RSS feed system as the headlines API.
+ */
 
 export async function GET() {
   try {
-    const prompt = `Generate a list of 10 breaking news headlines from major US media outlets 
-    (including sources like CNN, FOX News, NPR, Politico, CBS, Google News, Yahoo News) from the last 24-48 hours. 
+    // Fetch headlines from RSS feeds
+    const headlines = await fetchHeadlinesFromRSS();
     
-    For each, provide the headline, source, and a realistic URL.
-
-    Respond with a JSON object in this exact format:
-    {
-      "headlines": [
-        {"headline": "...", "source": "...", "url": "..."}
-      ]
-    }`;
-
-    const systemPrompt = `You are a news aggregator. Generate realistic, current breaking news headlines 
-    from major US media outlets. Focus on the most important and timely stories.`;
-
-    const result = await generateJSON<TickerResponse>(prompt, systemPrompt);
-
-    const headlinesWithDefaults = result.data.headlines.map(h => ({
-      ...h,
+    // Combine all headlines and shuffle for ticker
+    const allHeadlines = [
+      ...headlines.left,
+      ...headlines.center,
+      ...headlines.right,
+    ];
+    
+    // Shuffle the array for variety
+    const shuffled = allHeadlines.sort(() => Math.random() - 0.5);
+    
+    // Format for ticker (top 10)
+    const tickerHeadlines = shuffled.slice(0, 10).map(h => ({
+      headline: h.title,
+      source: h.source,
+      url: h.url,
       emoji: '⚡️',
-      publishedAt: new Date().toISOString(),
+      publishedAt: h.publishedAt.toISOString(),
     }));
-
+    
     return NextResponse.json({
-      headlines: headlinesWithDefaults,
-      provider: result.provider,
-      model: result.model,
+      headlines: tickerHeadlines,
+      provider: 'RSS Feeds',
+      model: 'Real News Aggregator v2.0',
     });
   } catch (error) {
     console.error('Error fetching ticker headlines:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch ticker headlines' },
-      { status: 500 }
-    );
+    
+    // Return empty array instead of error - ticker will just be empty
+    return NextResponse.json({
+      headlines: [],
+      provider: 'RSS Feeds',
+      error: 'Could not fetch headlines',
+    });
   }
 }
