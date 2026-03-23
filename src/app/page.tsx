@@ -2329,10 +2329,58 @@ export default function PoliticalSpectrumApp() {
       </Dialog>
 
       {/* Footer */}
-      <footer className="border-t bg-muted/30 py-6 mt-10">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>Political News Spectrum v{version?.version || '3.4.0'} • {version?.versionName || 'UI Enhancement'}</p>
-          <p className="mt-1">Algorithm-based media bias analysis • No AI required for core functionality</p>
+      <footer className="border-t bg-slate-900 text-slate-300 py-10 mt-10">
+        <div className="container mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            {/* Product Column */}
+            <div>
+              <h3 className="font-semibold mb-4 text-white text-sm">PRODUCT</h3>
+              <ul className="space-y-2 text-sm">
+                <li><a href="#features" className="hover:text-white transition-colors">Features</a></li>
+                <li><a href="#methodology" className="hover:text-white transition-colors">Methodology</a></li>
+                <li><a href="#sources" className="hover:text-white transition-colors">Sources</a></li>
+                <li><span className="text-slate-500">Pricing</span></li>
+              </ul>
+            </div>
+            {/* Company Column */}
+            <div>
+              <h3 className="font-semibold mb-4 text-white text-sm">COMPANY</h3>
+              <ul className="space-y-2 text-sm">
+                <li><a href="/misc" className="hover:text-white transition-colors">About Us</a></li>
+                <li><a href="/misc#ethics" className="hover:text-white transition-colors">Ethics Policy</a></li>
+                <li><a href="/misc#privacy" className="hover:text-white transition-colors">Privacy</a></li>
+                <li><a href="/misc#contact" className="hover:text-white transition-colors">Contact</a></li>
+              </ul>
+            </div>
+            {/* Connect Column */}
+            <div>
+              <h3 className="font-semibold mb-4 text-white text-sm">CONNECT</h3>
+              <div className="flex gap-3">
+                <a
+                  href="/share"
+                  className="w-10 h-10 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-800 transition-colors"
+                  title="Share"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                </a>
+                <a
+                  href="/misc"
+                  className="w-10 h-10 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-800 transition-colors"
+                  title="More"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
+                  </svg>
+                </a>
+              </div>
+            </div>
+          </div>
+          <div className="text-center mt-8 text-slate-500 text-sm border-t border-slate-800 pt-6">
+            <p>Political News Spectrum v{version?.version || '3.4.0'} • {version?.versionName || 'UI Enhancement'}</p>
+            <p className="mt-1">Algorithm-based media bias analysis • No AI required for core functionality</p>
+          </div>
         </div>
       </footer>
     </div>
